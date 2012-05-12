@@ -8,6 +8,8 @@
 -export([test_fun2/0]).
 -export([test_fun3/0]).
 -export([test_fun4/0]).
+-export([sample_res/0]).
+-export([sample_expr/1]).
 
 
 sample_expr() ->
@@ -18,7 +20,7 @@ sample_fun() ->
 	     
 
 sample_expr(Arg1) ->
-    Arg1+42.
+    meta:quote(Arg1+42).
 
 test() ->
     meta:splice(sample2:expr()).
@@ -30,21 +32,21 @@ test_fun2() ->
     meta:splice(sample2:expr(meta:quote(2))).
 
 test_fun3() ->
-    meta:splice(meta:quote(5+6)).
-
+    G = meta:splice(meta:quote(5+6)),
+    G.
 
 test_fun4() ->
     F = meta:splice(sample_fun()),
     F(1).
 
-sm() ->
-    [{clause,15,[],[],
-      [{op,15,'+',{var,15,'Arg1'},{integer,15,42}}]}].
+%%sm() ->
+%%    [{clause,15,[],[],
+%%      [{op,15,'+',{var,15,'Arg1'},{integer,15,42}}]}].
 
-res() ->
-    A = [1,2],
-    lists:sum(A).
+%%res() ->
+%%    A = [1,2],
+%%    lists:sum(A).
 
 
-%sample_res() ->
-%    splice(sample_expr(1)).
+sample_res() ->
+    sample_expr({integr,5,23}).
