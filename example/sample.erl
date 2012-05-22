@@ -4,13 +4,8 @@
 
 
 -meta([sample_expr/0, sample_expr/1]).
--export([test/0, sample_expr/0, test_loc/0, sample_fun/0]).
--export([test_fun2/0]).
--export([test_fun3/0]).
--export([test_fun4/0]).
--export([sample_res/0]).
--export([sample_expr/1]).
 
+-compile(export_all).
 
 sample_expr() ->
     meta:quote(2+20).

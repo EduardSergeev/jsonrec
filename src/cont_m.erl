@@ -4,11 +4,10 @@
 
 -behaviour(monad).
 -export(['>>='/2, return/1, fail/1]).
-
--export([sum/1]).
+-export([callCC/1]).
 
 -type cont(R, A) :: fun((C :: fun((A) -> R)) -> R).
--type monad(A) :: cont(_,A).
+-type monad(A) :: cont(R::any(),A).
 
 -include_lib("erlando/include/monad_specs.hrl").
 
@@ -19,7 +18,8 @@ return(A) ->
 '>>='(M, K) ->
     fun(C) ->
 	    M(fun(A) ->
-		      (K(A))(C)
+		      M2 = K(A),
+		      M2(C)
 	      end)
     end.
 
@@ -27,9 +27,11 @@ fail(S) ->
     error(S).
 
 
-sum(0) ->
-    return(0);
-sum(N) ->
-    [cont_m ||
-	N1 <- sum(N-1),
-	return(N1+N)].
+-spec callCC(K :: fun((fun((A :: any()) -> cont(R,B::any()))) -> cont(R,A))) -> cont(R,A).
+callCC(F) ->
+    fun(C) ->
+	    F1 = F(fun(A) ->
+			   fun(_) -> C(A) end    
+		   end),
+	    F1(C)
+    end.

@@ -77,6 +77,19 @@ fib_c(N) ->
 	   F2 <- fib_c(N-2),
 	   cont_m:return(F1+F2)]).
 
+fib_c_s(N) when N < 2 ->
+    M = cont_t:new(state_t:new(identity_m)),
+    M:return(N);
+fib_c_s(N) ->
+    S = state_t:new(identity_m),
+    M = cont_t:new(S),
+    do([M ||
+	   C <- M:lift(S:get()),
+	   M:lift(S:put(C+1)),
+	   F1 <- fib_c_s(N-1),
+	   F2 <- fib_c_s(N-2),
+	   M:return(F1+F2)]).
+
 %%
 %% Generators
 %%

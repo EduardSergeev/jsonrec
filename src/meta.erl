@@ -6,80 +6,103 @@
 
 -record(info,
        {meta = [],
-	functions = dict:new()}).
+        functions = dict:new()}).
 
 
+-record(attribute, {line, name, arg}).
 -record(function, {line, name, arity, clauses}).
 -record(call, {line, function, args}).
 -record(remote, {line, module, name}).
 -record(var, {line, name}).
-%% -record(atom, {line, name}).
-
--record(q_state, {in_quote, vars}).
+-record(atom, {line, name}).
 
 
--define(META_CALL(Name, Args),
-	#call
-	{function = #remote
-	 {module = {atom,_,meta},
-	  name = {atom,_,Name}},
-	 args = Args}).
--define(QUOTE(Var), ?META_CALL(quote, [Var])).
--define(SPLICE(Var), ?META_CALL(splice, Var)).
+-define(META_CALL(Ln, Name, Args),
+        #call{line = Ln,
+              function = #remote
+              {module = #atom{name = meta},
+               name = #atom{name = Name}},
+              args = Args}).
+-define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
+-define(SPLICE(Ln, Var), ?META_CALL(Ln, splice, Var)).
 
 
 parse_transform(Forms, _Options) ->
-    Forms1 = mapforms(
-	       fun quote_before/2,
-	       fun quote_after/2,
-	       #q_state{}, Forms),
-    Info = lists:foldl(fun do_trans/2, #info{}, Forms1),
-    io:format("~p~n", [Info]),
-    Forms2 = convert(splice(Info), Forms1),
-    io:format("~p~n", [Forms2]),
+    Forms1 = form_traverse(fun quote/2, undefined, Forms),
+    {_, Info} = traverse(fun info/2, #info{}, Forms1),
+    Forms2 = form_traverse(fun splice/2, Info#info.functions, Forms1),
+%%    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
 
-do_trans({attribute, _Line, meta, Meta}, Info) ->	    
-    add_meta(Meta, Info);
-do_trans({function, _Line, Name, Arity, Clauses}, Info) ->
-    add_function({Name,Arity}, Clauses, Info);
-do_trans(_Form, Info) ->	
-    Info.
+
+%%
+%% meta:quote/1 handling
+%%
+quote(#function{} = Func, _) ->
+    traverse(fun quote/2, gb_sets:new(), Func);
+quote(?QUOTE(_, Quote), Vs) ->
+    {Ast, _} = term_to_ast(Quote, Vs),
+    {erl_syntax:revert(Ast), Vs};
+quote(#var{name = Name} = V, Vs) ->
+    {V, gb_sets:add(Name, Vs)};
+quote(Form, Vs) ->
+    traverse(fun quote/2, Vs, Form).
+
+term_to_ast(?QUOTE(Ln, _), _) ->
+    throw({Ln, "meta:quote/1 is not allowed within another meta:quote/1"});
+term_to_ast(?SPLICE(Ln, _), _) ->
+    throw({Ln, "meta:splice/1 is not allowed within meta:quote/1"});
+term_to_ast(Ls, Vs) when is_list(Ls) ->
+    {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
+    {erl_syntax:list(Ls1), Vs};
+term_to_ast(#var{name = Name} = A, Vs) ->
+    case gb_sets:is_member(Name, Vs) of
+        true ->
+            {A, Vs};
+        false ->
+            tuple_to_ast(A, Vs)
+    end;
+term_to_ast(T, Vs) when is_tuple(T) ->
+    tuple_to_ast(T, Vs);
+term_to_ast(I, Vs) when is_integer(I) ->
+    {erl_syntax:integer(I), Vs};
+term_to_ast(A, Vs) when is_atom(A) ->
+    {erl_syntax:atom(A), Vs}.    
+    
+tuple_to_ast(T, Vs) ->
+    Ls = tuple_to_list(T),
+    {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
+    {erl_syntax:tuple(Ls1), Vs}.
 
 
-add_meta(Meta, #info{meta = Ms} = Info) ->
-    Info#info{meta = [Meta|Ms]}.
-
-add_function({Name,Arity}, Clauses, #info{functions = Fs} = Info) ->
-    Info#info{functions = dict:store({Name,Arity}, Clauses, Fs)}.
+%%
+%% Various info gathering for subsequent use
+%%
+info(#attribute{name = meta, arg = Meta} = Form,
+     #info{meta = Ms} = Info) ->
+    Info1 = Info#info{meta = [Meta|Ms]},
+    {Form, Info1};
+info(#function{ name = Name, arity = Arity, clauses = Clauses} = Form,
+     #info{functions = Fs} = Info) ->
+    Info1 = Info#info{functions = dict:store({Name,Arity}, Clauses, Fs)},
+    {Form, Info1};
+info(Form, Info) ->
+    traverse(fun info/2, Info, Form).
     
 
-splice(#info{functions = Fs}) ->
-    fun(?SPLICE(Splice)) ->
-	    Local = fun(Name, Args) ->
-			    Call = local_call(Fs, Name, Args),
-			    {value, Val, _} = erl_eval:expr(Call, []),
-			    Val
-		    end,
-	    {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
-	    Val;
-       (Form) ->
-	    Form
-    end.
-
-splice_before(#info{functions = Fs}) ->
-    fun(?SPLICE(Splice)) ->
-	    Local = fun(Name, Args) ->
-			    Call = local_call(Fs, Name, Args),
-			    {value, Val, _} = erl_eval:expr(Call, []),
-			    Val
-		    end,
-	    {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
-	    Val;
-       (Form) ->
-	    Form
-    end.
-
+%%
+%% mete:splice/1 handling
+%%
+splice(?SPLICE(_, Splice), Fs) ->
+    Local = fun(Name, Args) ->
+                    Call = local_call(Fs, Name, Args),
+                    {value, Val, _} = erl_eval:expr(Call, []),
+                    Val
+            end,
+    {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
+    {Val, Fs};
+splice(Form, Fs) ->
+    traverse(fun splice/2, Fs, Form).
 
 local_call(Fs, FunName, Args) ->
     Cs = dict:fetch({FunName,length(Args)}, Fs),
@@ -88,128 +111,30 @@ local_call(Fs, FunName, Args) ->
     erl_syntax:revert(A).
 
 
-quote_before(#function{}, _) ->
-    #q_state{vars = gb_sets:new(), in_quote = false};
-quote_before(?QUOTE(_), #q_state{in_quote = false} = QS) ->
-    QS#q_state{in_quote = true};
-quote_before(?QUOTE(_), #q_state{in_quote = true}) ->
-    error(nested_quote);
+form_traverse(Fun, Acc, Forms) ->
+    Do = fun(F, A) ->
+                 try
+                     Fun(F, A)
+                 catch
+                     throw:{Line, Reason} ->
+                         {{error, {Line, ?MODULE, Reason}}, A};
+                     throw:{Line, Reason, A1} ->
+                         {{error, {Line, ?MODULE, Reason}}, A1}
+                 end
+         end,    
+    {Forms1, _} = lists:mapfoldl(Do, Acc, Forms),
+    Forms1.
 
-quote_before(#var{name = Name}, #q_state{in_quote = false, vars = Vs} = QS) ->
-    QS#q_state{vars = gb_sets:add(Name, Vs)};
-quote_before(#var{name = Name}, #q_state{in_quote = true, vars = Vs} = QS) ->
-    QS#q_state{vars = gb_sets:add(Name, Vs)};
-
-quote_before(_, QS) ->
-    QS.
-
-quote_after2(?QUOTE(Ast), QS) ->
-    {erl_syntax:revert(Ast), QS#q_state{in_quote = false}};
-quote_after2(#var{name = Name} = A, #q_state{in_quote = true, vars = Vs}) ->
-    case gb_sets:is_member(Name, Vs) of
-	true ->
-	    A;
-	false ->
-	    Ls = tuple_to_list(A),
-	    Al = lists:map(fun(L) -> term_to_ast(Vs, L) end, Ls),
-	    erl_syntax:tuple(Al)
-    end;
-
-quote_after2(Form, QS) ->
-    {Form, QS}.
-
-
-quote_after(?QUOTE(Quote), QS) ->
-    Ast = term_to_ast(QS#q_state.vars, Quote),
-    {erl_syntax:revert(Ast), QS#q_state{in_quote = false}};
-quote_after(Form, QS) ->
-    {Form, QS}.
-
-
-
-term_to_ast(Vs, Ls) when is_list(Ls) ->
-    Al = lists:map(fun(L) -> term_to_ast(Vs, L) end, Ls),
-    erl_syntax:list(Al);
-term_to_ast(Vs, #var{name = Name} = A) ->
-    case gb_sets:is_member(Name, Vs) of
-	true ->
-	    A;
-	false ->
-	    Ls = tuple_to_list(A),
-	    Al = lists:map(fun(L) -> term_to_ast(Vs, L) end, Ls),
-	    erl_syntax:tuple(Al)
-    end;
-term_to_ast(Vs, Tp) when is_tuple(Tp) ->
-    Ls = tuple_to_list(Tp),
-    Al = lists:map(fun(L) -> term_to_ast(Vs, L) end, Ls),
-    erl_syntax:tuple(Al);
-term_to_ast(_, I) when is_integer(I) ->
-    erl_syntax:integer(I);
-term_to_ast(_, A) when is_atom(A) ->
-    erl_syntax:atom(A).
-
-traverse(Fun, [F|Fs]) ->
-    case t_step(Fun, F) of
-	nothing ->
-	    traverse(Fun, Fs);
-	F1 ->
-	    [F1|traverse(Fun, Fs)]
-    end;
-traverse(_Fun, []) ->
-    [];
-traverse(_Fun, Smt) ->
-    Smt.
-
-t_step(Fun, Form) when is_tuple(Form) ->
-    [Tag|Args] = tuple_to_list(Form),
-    Args1 = lists:map(
-	      fun(E) -> traverse(Fun, E) end,
-	      Args),
-    Fun(list_to_tuple([Tag|Args1])).
-
-
-
-convert(Fun, Forms) ->
-    Do = fun(F) ->
-		 try
-		     t_step(Fun, F)
-		 catch
-		     error:{Line, Reason} ->
-			 {error, {Line, ?MODULE, Reason}}
-		 end
-	 end,	 
-    lists:map(Do, Forms).
-
-
-mapforms(FB, FA, Acc, Forms) ->
-    Fun = fun(F) ->
-		  try
-		      {F1, _} = mapfoldl(FB, FA, Acc, F),
-		      F1
-		  catch
-		      error:{Ln, Err} ->
-			  {error, {Ln, ?MODULE, Err}}
-		  end
-	  end,	 
-    lists:map(Fun, Forms).    
-		 
-
-mapfoldl(FB, FA, Acc, Fs) when is_list(Fs) ->
-    Fun = fun(E,A) ->
-		  mapfoldl(FB, FA, A, E)
-	  end,
+traverse(Fun, Acc, Form) when is_tuple(Form) ->
+    Fs = tuple_to_list(Form),
+    {Fs1, Acc1} = traverse(Fun, Acc, Fs),
+    {list_to_tuple(Fs1), Acc1};
+traverse(Fun, Acc, Fs) when is_list(Fs) ->
     lists:mapfoldl(Fun, Acc, Fs);
-mapfoldl(FB, FA, Acc, Form) when is_tuple(Form) ->
-    Acc1 = FB(Form, Acc),
-    [Tag|Fs] = tuple_to_list(Form), 
-    {Fs1,Acc2} = mapfoldl(FB, FA, Acc1, Fs),
-    FA(list_to_tuple([Tag|Fs1]), Acc2);
-mapfoldl(FB, FA, Acc, Smt) ->
-    Acc1 = FB(Smt, Acc),
-    FA(Smt, Acc1).
+traverse(_Fun, Acc, Smt) ->
+    {Smt, Acc}.
 
 
-    
 -spec format_error(any()) -> [char() | list()].
 format_error(Message) ->
     case io_lib:deep_char_list(Message) of
