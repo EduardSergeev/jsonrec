@@ -115,8 +115,12 @@ eval_splice(Ln, Splice, Fs) ->
     catch
         error:{unbound, Var} ->
             meta_error(Ln, splice_external_var, Var);
-        error:_ ->
-            meta_error(Ln, invalid_splice)
+        error:{badarity, _} ->
+            meta_error(Ln, splice_badarity);
+        error:{badfun, _} ->
+            meta_error(Ln, splice_badfun)
+%        error:_ ->
+%            meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Fs) ->
@@ -178,6 +182,10 @@ format_error({splice_external_var, Var}) ->
     io_lib:format(
       "Variable '~s' is outside of scope of meta:splice/1",
       [Var]);
+format_error(splice_badarity) ->
+    "'badarity' call in 'meta:splice'";
+format_error(splice_badfun) ->
+    "'badfun' call in 'meta:splice'";
 format_error({splice_unknown_function, {Name,Arity}}) ->
     io_lib:format(
       "Unknown local function '~s/~b' used in 'meta:splice/1'",

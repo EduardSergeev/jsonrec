@@ -13,11 +13,14 @@
 e1() ->
     meta:quote(1).
 
-e2(A) ->
+e2() ->
     meta:quote(A+1).
 
-e3() ->
-    meta:splice(e2(e1())).
+e3(A) ->
+    A + meta:splice((e2())).
+
+e4() ->
+    meta:quote(e1()).
 
 s1() ->
     {ap, 1,2}.
@@ -61,3 +64,22 @@ t3() ->
       fun(A) ->
 	      A+1
       end).
+
+f1(A) ->
+    A+1.
+
+call(F, A) ->
+    meta:quote(F(A)).
+
+test(Fu) ->
+    F = fun(E, A) ->
+                call(E, A)
+        end,
+    lists:foldr(F, meta:quote(1), lists:duplicate(3,Fu)).
+    
+ts() ->
+    meta:splice(test(meta:quote(f1))).
+
+
+sa() ->
+    meta:quote(f1(1)).
