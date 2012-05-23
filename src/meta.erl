@@ -8,6 +8,7 @@
        {meta = [],
         functions = dict:new()}).
 
+-record(splice, {vars, funs}).
 
 -record(attribute, {line, name, arg}).
 -record(function, {line, name, arity, clauses}).
@@ -28,10 +29,14 @@
 
 
 parse_transform(Forms, _Options) ->
+    %%io:format("~p", [Forms]),
     Forms1 = form_traverse(fun quote/2, undefined, Forms),
+    %%io:format("~p", [Forms1]),
     {_, Info} = traverse(fun info/2, #info{}, Forms1),
-    Forms2 = form_traverse(fun splice/2, Info#info.functions, Forms1),
-%%    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
+    %%io:format("~p", [Info]),
+    Fs = Info#info.functions,
+    Forms2 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms1),
+    %%io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
 
 
@@ -49,9 +54,11 @@ quote(Form, Vs) ->
     traverse(fun quote/2, Vs, Form).
 
 term_to_ast(?QUOTE(Ln, _), _) ->
-    throw({Ln, "meta:quote/1 is not allowed within another meta:quote/1"});
+%%    meta_error(Ln, "meta:quote/1 is not allowed within another meta:quote/1");
+    meta_error(Ln, nested_quote);
 term_to_ast(?SPLICE(Ln, _), _) ->
-    throw({Ln, "meta:splice/1 is not allowed within meta:quote/1"});
+%%    meta_error(Ln, "meta:splice/1 is not allowed within meta:quote/1");
+    meta_error(Ln, nested_splice);
 term_to_ast(Ls, Vs) when is_list(Ls) ->
     {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
     {erl_syntax:list(Ls1), Vs};
@@ -93,23 +100,47 @@ info(Form, Info) ->
 %%
 %% mete:splice/1 handling
 %%
-splice(?SPLICE(_, Splice), Fs) ->
-    Local = fun(Name, Args) ->
-                    Call = local_call(Fs, Name, Args),
-                    {value, Val, _} = erl_eval:expr(Call, []),
-                    Val
-            end,
-    {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
-    {Val, Fs};
-splice(Form, Fs) ->
-    traverse(fun splice/2, Fs, Form).
+splice(#function{} = Func, S) ->
+    traverse(fun splice/2, S#splice{vars = gb_sets:new()}, Func);
+splice(?SPLICE(Ln, Splice), #splice{funs = Fs} = S) ->
+    {eval_splice(Ln, Splice, Fs), S};
+splice(Form, S) ->
+    traverse(fun splice/2, S, Form).
 
-local_call(Fs, FunName, Args) ->
-    Cs = dict:fetch({FunName,length(Args)}, Fs),
-    F = erl_syntax:fun_expr(Cs),
-    A = erl_syntax:application(F, Args),
-    erl_syntax:revert(A).
+eval_splice(Ln, Splice, Fs) ->
+    Local = local_handler(Fs),
+    try
+        {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
+        Val
+    catch
+        error:{unbound, Var} ->
+            meta_error(Ln, splice_external_var, Var)
+%%        error:_ ->
+%%            meta_error(Ln, invalid_splice)
+    end.
 
+local_handler(Fs) ->
+    fun(Name, Args) ->
+            Cs = dict:fetch({Name, length(Args)}, Fs),
+            F = erl_syntax:fun_expr(Cs),
+            A = erl_syntax:application(F, Args),
+            Call = erl_syntax:revert(A),
+            {value, Val, _} = erl_eval:expr(Call, [], {value, local_handler(Fs)}),
+            Val
+    end.
+
+
+%%
+%% Recursive traversal a-la mapfoldl
+%%
+traverse(Fun, Acc, Form) when is_tuple(Form) ->
+    Fs = tuple_to_list(Form),
+    {Fs1, Acc1} = traverse(Fun, Acc, Fs),
+    {list_to_tuple(Fs1), Acc1};
+traverse(Fun, Acc, Fs) when is_list(Fs) ->
+    lists:mapfoldl(Fun, Acc, Fs);
+traverse(_Fun, Acc, Smt) ->
+    {Smt, Acc}.
 
 form_traverse(Fun, Acc, Forms) ->
     Do = fun(F, A) ->
@@ -125,21 +156,21 @@ form_traverse(Fun, Acc, Forms) ->
     {Forms1, _} = lists:mapfoldl(Do, Acc, Forms),
     Forms1.
 
-traverse(Fun, Acc, Form) when is_tuple(Form) ->
-    Fs = tuple_to_list(Form),
-    {Fs1, Acc1} = traverse(Fun, Acc, Fs),
-    {list_to_tuple(Fs1), Acc1};
-traverse(Fun, Acc, Fs) when is_list(Fs) ->
-    lists:mapfoldl(Fun, Acc, Fs);
-traverse(_Fun, Acc, Smt) ->
-    {Smt, Acc}.
+
+meta_error(Line, Error) ->
+    throw({Line, Error}).
+
+meta_error(Line, Error, Arg) ->
+    throw({Line, {Error, Arg}}).
 
 
--spec format_error(any()) -> [char() | list()].
-format_error(Message) ->
-    case io_lib:deep_char_list(Message) of
-        true ->
-            Message;
-        _ ->
-            io_lib:write(Message)
-    end.
+format_error(nested_quote) ->
+    "meta:quote/1 is not allowed within another meta:quote/1";
+format_error(nested_splice) ->
+    "meta:splice/1 is not allowed within meta:quote/1";
+format_error(invalid_splice) ->
+    "invalid expression in meta:splice/1";
+format_error({splice_external_var, Var}) ->
+    io_lib:format(
+      "Variable '~s' is outside of scope of meta:splice/1",
+      [Var]).

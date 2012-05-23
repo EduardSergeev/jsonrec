@@ -21,23 +21,23 @@ expr() ->
 
 
 expr1() ->
-   meta:quote(42).
+    meta:quote(42+1).
+
+expr11() ->
+    expr1().
 
 expr(A) ->
     meta:quote(A+1).
 
 expr(A,B) ->
-    C = A + B,
-    meta:quote(C+2).
+    meta:quote(A+B).
 
 t1() ->
     A = meta:quote(2+1),
-    F = fun(O) ->
-		%%meta:quote(meta:splice(A)+O)
-                %%meta:splice(A)+O
-                A+O
-	end,
-    F.
+    expr(A).
+
+t11() ->
+    meta:splice(expr11()).
 
 t2() ->
     fun(A) ->
