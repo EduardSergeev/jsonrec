@@ -10,8 +10,17 @@
 %%-export([s2/0, expr/1]).
 
 
-%% s1() ->
-%%     {ap, 1,2}.
+e1() ->
+    meta:quote(1).
+
+e2(A) ->
+    meta:quote(A+1).
+
+e3() ->
+    meta:splice(e2(e1())).
+
+s1() ->
+    {ap, 1,2}.
 
 s2() ->
     1+2.
@@ -21,7 +30,7 @@ expr() ->
 
 
 expr1() ->
-    meta:quote(42+1).
+    meta:quote((2+1)+1).
 
 expr11() ->
     expr1().
@@ -36,8 +45,11 @@ t1() ->
     A = meta:quote(2+1),
     expr(A).
 
+%%t111() ->
+%%    meta:splice(expr1(1)).
+
 t11() ->
-    meta:splice(expr11()).
+    meta:splice(t1()).
 
 t2() ->
     fun(A) ->

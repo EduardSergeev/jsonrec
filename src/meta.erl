@@ -108,25 +108,29 @@ splice(Form, S) ->
     traverse(fun splice/2, S, Form).
 
 eval_splice(Ln, Splice, Fs) ->
-    Local = local_handler(Fs),
+    Local = local_handler(Ln, Fs),
     try
-        {value, Val, _} = erl_eval:exprs(Splice, [], {value, Local}),
+        {value, Val, _} = erl_eval:exprs(Splice, [], {eval, Local}),
         Val
     catch
         error:{unbound, Var} ->
-            meta_error(Ln, splice_external_var, Var)
-%%        error:_ ->
-%%            meta_error(Ln, invalid_splice)
+            meta_error(Ln, splice_external_var, Var);
+        error:_ ->
+            meta_error(Ln, invalid_splice)
     end.
 
-local_handler(Fs) ->
-    fun(Name, Args) ->
-            Cs = dict:fetch({Name, length(Args)}, Fs),
-            F = erl_syntax:fun_expr(Cs),
-            A = erl_syntax:application(F, Args),
-            Call = erl_syntax:revert(A),
-            {value, Val, _} = erl_eval:expr(Call, [], {value, local_handler(Fs)}),
-            Val
+local_handler(Ln, Fs) ->
+    fun(Name, Args, Bs) ->
+            Fn = {Name, length(Args)},
+            case dict:find(Fn, Fs) of
+                {ok, Cs} ->
+                    F = erl_syntax:fun_expr(Cs),
+                    A = erl_syntax:application(F, Args),
+                    Call = erl_syntax:revert(A),
+                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs)});
+                error ->
+                    meta_error(Ln, {splice_unknown_function, Fn})
+            end
     end.
 
 
@@ -173,4 +177,10 @@ format_error(invalid_splice) ->
 format_error({splice_external_var, Var}) ->
     io_lib:format(
       "Variable '~s' is outside of scope of meta:splice/1",
-      [Var]).
+      [Var]);
+format_error({splice_unknown_function, {Name,Arity}}) ->
+    io_lib:format(
+      "Unknown local function '~s/~b' used in 'meta:splice/1'",
+      [Name,Arity]).
+    
+
