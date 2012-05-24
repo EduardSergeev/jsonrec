@@ -123,9 +123,9 @@ info(#attribute{name = record, arg = {Name, _} = Def} = Form,
     Rs1 = dict:store(Name, Def, Rs),
     Info1 = Info#info{records = Rs1},
     {Form, Info1};
-info(#function{ name = Name, arity = Arity, clauses = Clauses} = Form,
+info(#function{ name = Name, arity = Arity} = Form,
      #info{functions = Fs} = Info) ->
-    Info1 = Info#info{functions = dict:store({Name,Arity}, Clauses, Fs)},
+    Info1 = Info#info{functions = dict:store({Name,Arity}, Form, Fs)},
     {Form, Info1};
 info(Form, Info) ->
     traverse(fun info/2, Info, Form).
@@ -152,16 +152,16 @@ eval_splice(Ln, Splice, Fs) ->
         error:{badarity, _} ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
-            meta_error(Ln, splice_badfun)
-%        error:_ ->
-%            meta_error(Ln, invalid_splice)
+            meta_error(Ln, splice_badfun);
+        error:_ ->
+            meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Fs) ->
     fun(Name, Args, Bs) ->
             Fn = {Name, length(Args)},
             case dict:find(Fn, Fs) of
-                {ok, Cs} ->
+                {ok, #function{clauses = Cs}} ->
                     F = erl_syntax:fun_expr(Cs),
                     A = erl_syntax:application(F, Args),
                     Call = erl_syntax:revert(A),
