@@ -89,7 +89,8 @@ sa() ->
     meta:quote(f1(1)).
 
 r1() ->
-    meta:reify(fun s1/0).
+    meta:reify(fun s2/0).
+
 
 r2() ->
     meta:reify(#rec{}).

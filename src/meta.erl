@@ -31,7 +31,7 @@
 
 
 parse_transform(Forms, _Options) ->
-    io:format("~p", [Forms]),
+    %%io:format("~p", [Forms]),
     {_, PredInfo} = traverse(fun info/2, #info{}, Forms),
     Forms1 = form_traverse(fun reify/2, PredInfo, Forms),    
 
@@ -40,6 +40,7 @@ parse_transform(Forms, _Options) ->
     Fs = Info#info.functions,
 
     Forms3 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms2),
+    %%io:format("~p", [Forms3]),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms3))]),
     Forms3.
 
@@ -138,6 +139,10 @@ splice(#function{} = Func, S) ->
     traverse(fun splice/2, S#splice{vars = gb_sets:new()}, Func);
 splice(?SPLICE(Ln, Splice), #splice{funs = Fs} = S) ->
     {eval_splice(Ln, Splice, Fs), S};
+splice(#attribute{line = Ln, name = splice, arg = Fun},
+       #splice{funs = Fs} = S) ->
+    Splice = make_splice(Fun),
+    {eval_splice(Ln, Splice, Fs), S};    
 splice(Form, S) ->
     traverse(fun splice/2, S, Form).
 
@@ -153,6 +158,8 @@ eval_splice(Ln, Splice, Fs) ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
             meta_error(Ln, splice_badfun);
+        error:undef ->
+            meta_error(Ln, splice_unknown_external_function);
         error:_ ->
             meta_error(Ln, invalid_splice)
     end.
@@ -170,6 +177,16 @@ local_handler(Ln, Fs) ->
                     meta_error(Ln, {splice_unknown_function, Fn})
             end
     end.
+
+make_splice({Mod,Fun}) ->
+    M = erl_syntax:atom(Mod),
+    F = erl_syntax:atom(Fun),
+    Ast = erl_syntax:application(M, F, []),
+    [erl_syntax:revert(Ast)];
+make_splice(LocalFun) ->
+    F = erl_syntax:atom(LocalFun),
+    Ast = erl_syntax:application(F, []),
+    [erl_syntax:revert(Ast)].
 
 
 %%
@@ -222,6 +239,8 @@ format_error(splice_badarity) ->
     "'badarity' call in 'meta:splice'";
 format_error(splice_badfun) ->
     "'badfun' call in 'meta:splice'";
+format_error(splice_unknown_external_function) ->
+    "Unknown remote function call in 'splice'";
 format_error({splice_unknown_function, {Name,Arity}}) ->
     format("Unknown local function '~s/~b' used in 'meta:splice/1'", [Name,Arity]).
     
