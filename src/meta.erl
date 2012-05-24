@@ -4,19 +4,15 @@
 -export([parse_transform/2]).
 -export([format_error/1]).
 
+-include("meta_syntax.hrl").
+
 -record(info,
         {meta = [],
+         types = dict:new(),
          records = dict:new(),
          functions = dict:new()}).
 
 -record(splice, {vars, funs}).
-
--record(attribute, {line, name, arg}).
--record(function, {line, name, arity, clauses}).
--record(call, {line, function, args}).
--record(remote, {line, module, name}).
--record(var, {line, name}).
--record(atom, {line, name}).
 
 
 -define(META_CALL(Ln, Name, Args),
@@ -31,18 +27,21 @@
 
 
 parse_transform(Forms, _Options) ->
-    %%io:format("~p", [Forms]),
-    {_, PredInfo} = traverse(fun info/2, #info{}, Forms),
-    Forms1 = form_traverse(fun reify/2, PredInfo, Forms),    
+    Forms1 = form_traverse(fun quote/2, undefined, Forms),
 
-    Forms2 = form_traverse(fun quote/2, undefined, Forms1),
+    {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
+
+    Forms2 = form_traverse(fun reify/2, InfoPred, Forms1),    
+
     {_, Info} = traverse(fun info/2, #info{}, Forms2),
     Fs = Info#info.functions,
 
-    Forms3 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms2),
+    Forms3 = form_traverse(fun reify/2, Info, Forms2),    
+
+    Forms4 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms3),
     %%io:format("~p", [Forms3]),
-    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms3))]),
-    Forms3.
+    %%io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms4))]),
+    Forms4.
 
 
 %%
@@ -55,6 +54,8 @@ quote(?QUOTE(_, Quote), Vs) ->
     {erl_syntax:revert(Ast), Vs};
 quote(#var{name = Name} = V, Vs) ->
     {V, gb_sets:add(Name, Vs)};
+quote(#attribute{} = Form, Vs) ->
+    {Form, Vs};
 quote(Form, Vs) ->
     traverse(fun quote/2, Vs, Form).
 
@@ -124,6 +125,12 @@ info(#attribute{name = record, arg = {Name, _} = Def} = Form,
     Rs1 = dict:store(Name, Def, Rs),
     Info1 = Info#info{records = Rs1},
     {Form, Info1};
+info(#attribute{name = type, arg = Def} = Form,
+     #info{types = Ts} = Info) ->
+    Name = element(1, Def),
+    Ts1 = dict:store(Name, Def, Ts),
+    Info1 = Info#info{types = Ts1},
+    {Form, Info1};
 info(#function{ name = Name, arity = Arity} = Form,
      #info{functions = Fs} = Info) ->
     Info1 = Info#info{functions = dict:store({Name,Arity}, Form, Fs)},
@@ -157,11 +164,11 @@ eval_splice(Ln, Splice, Fs) ->
         error:{badarity, _} ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
-            meta_error(Ln, splice_badfun);
-        error:undef ->
-            meta_error(Ln, splice_unknown_external_function);
-        error:_ ->
-            meta_error(Ln, invalid_splice)
+            meta_error(Ln, splice_badfun)
+%%        error:undef ->
+%%            meta_error(Ln, splice_unknown_external_function);
+%%        error:_ ->
+%%            meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Fs) ->
@@ -185,7 +192,7 @@ make_splice({Mod,Fun}) ->
     [erl_syntax:revert(Ast)];
 make_splice(LocalFun) ->
     F = erl_syntax:atom(LocalFun),
-    Ast = erl_syntax:application(F, []),
+    Ast = erl_syntax:application(none, F, []),
     [erl_syntax:revert(Ast)].
 
 

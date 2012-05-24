@@ -1,10 +1,11 @@
 -module(sample2).
 
+-include("../src/meta.hrl").
+
 -record(rec,
         {id :: integer(),
          field1 :: binary()}).
 
--compile({parse_transform, meta}).
 
 -compile(export_all).
 

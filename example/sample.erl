@@ -1,7 +1,6 @@
 -module(sample).
 
--compile({parse_transform, meta}).
-
+-include("../src/meta.hrl").
 
 -meta([sample_expr/0, sample_expr/1]).
 
