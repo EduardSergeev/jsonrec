@@ -5,8 +5,9 @@
 -export([format_error/1]).
 
 -record(info,
-       {meta = [],
-        functions = dict:new()}).
+        {meta = [],
+         records = dict:new(),
+         functions = dict:new()}).
 
 -record(splice, {vars, funs}).
 
@@ -25,19 +26,22 @@
                name = #atom{name = Name}},
               args = Args}).
 -define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
+-define(REIFY(Ln, Name), ?META_CALL(Ln, reify, [Name])).
 -define(SPLICE(Ln, Var), ?META_CALL(Ln, splice, Var)).
 
 
 parse_transform(Forms, _Options) ->
-    %%io:format("~p", [Forms]),
-    Forms1 = form_traverse(fun quote/2, undefined, Forms),
-    %%io:format("~p", [Forms1]),
-    {_, Info} = traverse(fun info/2, #info{}, Forms1),
-    %%io:format("~p", [Info]),
+    io:format("~p", [Forms]),
+    {_, PredInfo} = traverse(fun info/2, #info{}, Forms),
+    Forms1 = form_traverse(fun reify/2, PredInfo, Forms),    
+
+    Forms2 = form_traverse(fun quote/2, undefined, Forms1),
+    {_, Info} = traverse(fun info/2, #info{}, Forms2),
     Fs = Info#info.functions,
-    Forms2 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms1),
-    %%io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
-    Forms2.
+
+    Forms3 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms2),
+    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms3))]),
+    Forms3.
 
 
 %%
@@ -54,10 +58,8 @@ quote(Form, Vs) ->
     traverse(fun quote/2, Vs, Form).
 
 term_to_ast(?QUOTE(Ln, _), _) ->
-%%    meta_error(Ln, "meta:quote/1 is not allowed within another meta:quote/1");
     meta_error(Ln, nested_quote);
 term_to_ast(?SPLICE(Ln, _), _) ->
-%%    meta_error(Ln, "meta:splice/1 is not allowed within meta:quote/1");
     meta_error(Ln, nested_splice);
 term_to_ast(Ls, Vs) when is_list(Ls) ->
     {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
@@ -83,11 +85,43 @@ tuple_to_ast(T, Vs) ->
 
 
 %%
+%% meta:reify/1 handling
+%%
+reify(?REIFY(Ln, {'fun', _, {function, Name, Arity}}),
+      #info{functions = Fs} = Info) ->
+    Fn = {Name, Arity},
+    case dict:find(Fn, Fs) of
+        {ok, Cs} ->
+            {Ast, _} = term_to_ast(Cs, gb_sets:new()),
+            {erl_syntax:revert(Ast), Info};
+        error ->
+            meta_error(Ln, {reify_unknown_function, Fn})
+    end;            
+reify(?REIFY(Ln, {record, _, Name, []}),
+      #info{records = Rs} = Info) ->
+    case dict:find(Name, Rs) of
+        {ok, Df} ->
+            {Ast, _} = term_to_ast(Df, gb_sets:new()),
+            {erl_syntax:revert(Ast), Info};
+        error ->
+            meta_error(Ln, {reify_unknown_record, Name})
+    end;            
+    
+reify(Form, Info) ->
+    traverse(fun reify/2, Info, Form).
+
+
+%%
 %% Various info gathering for subsequent use
 %%
 info(#attribute{name = meta, arg = Meta} = Form,
      #info{meta = Ms} = Info) ->
     Info1 = Info#info{meta = [Meta|Ms]},
+    {Form, Info1};
+info(#attribute{name = record, arg = {Name, _} = Def} = Form,
+     #info{records = Rs} = Info) ->
+    Rs1 = dict:store(Name, Def, Rs),
+    Info1 = Info#info{records = Rs1},
     {Form, Info1};
 info(#function{ name = Name, arity = Arity, clauses = Clauses} = Form,
      #info{functions = Fs} = Info) ->
@@ -176,19 +210,21 @@ format_error(nested_quote) ->
     "meta:quote/1 is not allowed within another meta:quote/1";
 format_error(nested_splice) ->
     "meta:splice/1 is not allowed within meta:quote/1";
+format_error({reify_unknown_function, {Name, Arity}}) ->
+    format("attempt to reify unknown function '~s/~b'", [Name, Arity]);
+format_error({reify_unknown_record, Name}) ->
+    format("attempt to reify unknown record '~s'", [Name]);
 format_error(invalid_splice) ->
     "invalid expression in meta:splice/1";
 format_error({splice_external_var, Var}) ->
-    io_lib:format(
-      "Variable '~s' is outside of scope of meta:splice/1",
-      [Var]);
+    format("Variable '~s' is outside of scope of meta:splice/1", [Var]);
 format_error(splice_badarity) ->
     "'badarity' call in 'meta:splice'";
 format_error(splice_badfun) ->
     "'badfun' call in 'meta:splice'";
 format_error({splice_unknown_function, {Name,Arity}}) ->
-    io_lib:format(
-      "Unknown local function '~s/~b' used in 'meta:splice/1'",
-      [Name,Arity]).
+    format("Unknown local function '~s/~b' used in 'meta:splice/1'", [Name,Arity]).
     
-
+format(Format, Args) ->
+    io_lib:format(Format, Args).
+    
