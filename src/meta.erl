@@ -23,10 +23,12 @@
               args = Args}).
 -define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
 -define(REIFY(Ln, Name), ?META_CALL(Ln, reify, [Name])).
+-define(REIFYTYPE(Ln, Name), ?META_CALL(Ln, reify_type, [Name])).
 -define(SPLICE(Ln, Var), ?META_CALL(Ln, splice, Var)).
 
 
 parse_transform(Forms, _Options) ->
+    %%io:format("~p", [Forms]),
     Forms1 = form_traverse(fun quote/2, undefined, Forms),
 
     {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
@@ -34,13 +36,14 @@ parse_transform(Forms, _Options) ->
     Forms2 = form_traverse(fun reify/2, InfoPred, Forms1),    
 
     {_, Info} = traverse(fun info/2, #info{}, Forms2),
+    %%io:format("~p", [Info]),
     Fs = Info#info.functions,
 
     Forms3 = form_traverse(fun reify/2, Info, Forms2),    
 
     Forms4 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms3),
     %%io:format("~p", [Forms3]),
-    %%io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms4))]),
+    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms4))]),
     Forms4.
 
 
@@ -91,26 +94,39 @@ tuple_to_ast(T, Vs) ->
 %%
 reify(?REIFY(Ln, {'fun', _, {function, Name, Arity}}),
       #info{functions = Fs} = Info) ->
-    Fn = {Name, Arity},
-    case dict:find(Fn, Fs) of
-        {ok, Cs} ->
-            {Ast, _} = term_to_ast(Cs, gb_sets:new()),
-            {erl_syntax:revert(Ast), Info};
-        error ->
-            meta_error(Ln, {reify_unknown_function, Fn})
-    end;            
+    Key = {Name, Arity},
+    {fetch(Ln, Key, Fs, reify_unknown_function),
+     Info};             
 reify(?REIFY(Ln, {record, _, Name, []}),
       #info{records = Rs} = Info) ->
-    case dict:find(Name, Rs) of
-        {ok, Df} ->
-            {Ast, _} = term_to_ast(Df, gb_sets:new()),
-            {erl_syntax:revert(Ast), Info};
-        error ->
-            meta_error(Ln, {reify_unknown_record, Name})
-    end;            
-    
+    {fetch(Ln, Name, Rs, reify_unknown_record),
+     Info};             
+reify(?REIFYTYPE(Ln, #call{function = #atom{name = Name}, args = _Args}),
+      #info{types = Ts} = Info) ->
+    {fetch(Ln, Name, Ts, reify_unknown_type),
+     Info};             
+reify(?REIFYTYPE(Ln, {record, _, Name, []}),
+      #info{types = Ts} = Info) ->
+    Key = {record, Name},
+    {fetch(Ln, Key, Ts, reify_unknown_record_type),
+     Info};
+reify(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
+      #info{types = Ts} = Info) ->
+    Key = {Name, Arity},
+    {fetch(Ln, Key, Ts, reify_unknown_function_spec),
+     Info};
 reify(Form, Info) ->
     traverse(fun reify/2, Info, Form).
+
+fetch(Line, Name, Dict, Error) ->
+    case dict:find(Name, Dict) of
+        {ok, Def} ->
+            {Ast, _} = term_to_ast(Def, gb_sets:new()),
+            erl_syntax:revert(Ast);
+        error ->
+            meta_error(Line, {Error, Name})
+    end.
+    
 
 
 %%
@@ -131,7 +147,13 @@ info(#attribute{name = type, arg = Def} = Form,
     Ts1 = dict:store(Name, Def, Ts),
     Info1 = Info#info{types = Ts1},
     {Form, Info1};
-info(#function{ name = Name, arity = Arity} = Form,
+info(#attribute{name = spec, arg = Def} = Form,
+     #info{types = Ts} = Info) ->
+    Name = element(1, Def),
+    Ts1 = dict:store(Name, Def, Ts),
+    Info1 = Info#info{types = Ts1},
+    {Form, Info1};
+info(#function{name = Name, arity = Arity} = Form,
      #info{functions = Fs} = Info) ->
     Info1 = Info#info{functions = dict:store({Name,Arity}, Form, Fs)},
     {Form, Info1};
@@ -238,6 +260,12 @@ format_error({reify_unknown_function, {Name, Arity}}) ->
     format("attempt to reify unknown function '~s/~b'", [Name, Arity]);
 format_error({reify_unknown_record, Name}) ->
     format("attempt to reify unknown record '~s'", [Name]);
+format_error({reify_unknown_type, Name}) ->
+    format("attempt to reify unknown type '~s'", [Name]);
+format_error({reify_unknown_record_type, Name}) ->
+    format("attempt to reify unknown record type '~s'", [Name]);
+format_error({reify_unknown_function_spec, {Name, Arity}}) ->
+    format("attempt to reify unknown function -spec '~s/~b'", [Name, Arity]);
 format_error(invalid_splice) ->
     "invalid expression in meta:splice/1";
 format_error({splice_external_var, Var}) ->
