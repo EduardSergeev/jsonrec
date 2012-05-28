@@ -5,7 +5,7 @@
 -compile(export_all).
 
 -record(rec1, {id, fi}).
--record(rec2, {id, rec1, int}).
+-record(rec2, {id, rec1, int, f1, f2, f3}).
 
 
 t() ->
@@ -20,7 +20,7 @@ gen2() ->
 %%gg() ->
 %%    meta:splice(gen()).
 
--splice(gen1).
+-splice(gen2).
 %%-splice({{jsonrecord2,encode_gen},[{rec2,[{record_field,8,{atom,8,id}},
 %%                                         {record_field,8,{atom,8,rec1}},
 %%                                         {record_field,8,{atom,8,int}}]}]}).
@@ -33,6 +33,8 @@ gen2() ->
 %%ee() ->
 %%    {ff, meta:splice(gen())}.
 
-ee() ->
-    meta:reify(#rec2{}).
+%ee() ->
+%    meta:reify(#rec2{}).
     
+%%ee2() ->
+%%    meta:splice(gen1()).

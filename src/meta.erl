@@ -35,7 +35,7 @@ parse_transform(Forms, _Options) ->
     {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
 
     Forms2 = form_traverse(fun reify/2, InfoPred, Forms1),    
-    io:format("~p", [Forms2]),
+    %%io:format("~p", [Forms2]),
 
     {_, Info} = traverse(fun info/2, #info{}, Forms2),
     %%io:format("~p", [Info]),
