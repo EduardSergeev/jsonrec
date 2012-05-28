@@ -13,9 +13,16 @@
          field :: [boolean()],
          ref :: #rec1{}}).
 
+-import(sample2, [do/1]).
+
+-meta([do/1]).
+
 -splice(mk_rec_foo).
 
 -type my_type(A,B) :: {A,[B]}.
+
+spl1() ->
+    do([ghh || A <- gg]).
 
 -spec f1() -> any().
 f1() ->

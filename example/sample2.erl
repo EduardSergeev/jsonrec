@@ -6,6 +6,7 @@
         {id :: integer(),
          field1 :: binary()}).
 
+-meta([do/1]).
 
 -compile(export_all).
 
@@ -14,6 +15,10 @@
 
 %%-export([s2/0, expr/1]).
 
+
+do(Expr) ->
+    meta:quote(Expr+1).
+    
 
 e1() ->
     meta:quote(1).

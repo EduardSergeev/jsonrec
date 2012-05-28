@@ -15,12 +15,13 @@
 -record(splice, {vars, funs}).
 
 
--define(META_CALL(Ln, Name, Args),
+-define(CALL(Ln, Mod, Name, Args),
         #call{line = Ln,
               function = #remote
-              {module = #atom{name = meta},
+              {module = #atom{name = Mod},
                name = #atom{name = Name}},
               args = Args}).
+-define(META_CALL(Ln, Name, Args), ?CALL(Ln, meta, Name, Args)).
 -define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
 -define(REIFY(Ln, Name), ?META_CALL(Ln, reify, [Name])).
 -define(REIFYTYPE(Ln, Name), ?META_CALL(Ln, reify_type, [Name])).
@@ -28,12 +29,13 @@
 
 
 parse_transform(Forms, _Options) ->
-    %%io:format("~p", [Forms]),
+%%    io:format("~p", [Forms]),
     Forms1 = form_traverse(fun quote/2, undefined, Forms),
 
     {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
 
     Forms2 = form_traverse(fun reify/2, InfoPred, Forms1),    
+    io:format("~p", [Forms2]),
 
     {_, Info} = traverse(fun info/2, #info{}, Forms2),
     %%io:format("~p", [Info]),
@@ -134,7 +136,7 @@ fetch(Line, Name, Dict, Error) ->
 %%
 info(#attribute{name = meta, arg = Meta} = Form,
      #info{meta = Ms} = Info) ->
-    Info1 = Info#info{meta = [Meta|Ms]},
+    Info1 = Info#info{meta = Ms ++ Meta},
     {Form, Info1};
 info(#attribute{name = record, arg = {Name, _} = Def} = Form,
      #info{records = Rs} = Info) ->
@@ -170,15 +172,24 @@ splice(?SPLICE(Ln, Splice), #splice{funs = Fs} = S) ->
     {eval_splice(Ln, Splice, Fs), S};
 splice(#attribute{line = Ln, name = splice, arg = Fun},
        #splice{funs = Fs} = S) ->
-    Splice = make_splice(Fun),
-    {eval_splice(Ln, Splice, Fs), S};    
+    {splice_attrib(Ln, Fun, Fs), S};
+%% splice(?CALL(Ln, Mod, Name, Args),
+%%       #splice{funs = Fs, metas = Ms, }) ->
+%%     case gb_sets:is_member(
 splice(Form, S) ->
     traverse(fun splice/2, S, Form).
+
+splice_attrib(Ln, {Fun,Args}, Fs) when is_list(Args) ->
+    Splice = make_splice(Fun, []),
+    eval_splice(Ln, Splice, Fs);   
+splice_attrib(Ln, Fun, Fs) ->
+    splice_attrib(Ln, {Fun,[]}, Fs).
 
 eval_splice(Ln, Splice, Fs) ->
     Local = local_handler(Ln, Fs),
     try
-        {value, Val, _} = erl_eval:exprs(Splice, [], {eval, Local}),
+        Splice1 = erl_syntax:revert(Splice),
+        {value, Val, _} = erl_eval:exprs(Splice1, [], {eval, Local}),
         Val
     catch
         error:{unbound, Var} ->
@@ -186,11 +197,11 @@ eval_splice(Ln, Splice, Fs) ->
         error:{badarity, _} ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
-            meta_error(Ln, splice_badfun)
+            meta_error(Ln, splice_badfun);
 %%        error:undef ->
 %%            meta_error(Ln, splice_unknown_external_function);
-%%        error:_ ->
-%%            meta_error(Ln, invalid_splice)
+        error:_ ->
+            meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Fs) ->
@@ -207,14 +218,16 @@ local_handler(Ln, Fs) ->
             end
     end.
 
-make_splice({Mod,Fun}) ->
+make_splice({Mod,Fun}, Args) ->
     M = erl_syntax:atom(Mod),
     F = erl_syntax:atom(Fun),
-    Ast = erl_syntax:application(M, F, []),
+    Args1 = lists:map(fun erl_syntax:abstract/1, Args),
+    Ast = erl_syntax:application(M, F, Args1),
     [erl_syntax:revert(Ast)];
-make_splice(LocalFun) ->
-    F = erl_syntax:atom(LocalFun),
-    Ast = erl_syntax:application(none, F, []),
+make_splice(Fun, Args) ->
+    F = erl_syntax:atom(Fun),
+    Args1 = lists:map(fun erl_syntax:abstract/1, Args),
+    Ast = erl_syntax:application(none, F, Args1),
     [erl_syntax:revert(Ast)].
 
 
