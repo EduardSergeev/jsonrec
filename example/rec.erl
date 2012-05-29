@@ -23,26 +23,5 @@ gen3() ->
 gen4() ->
     jsonrecord2:decode_gen_ms(meta:reify(#rec2{})).
 
-%%gg() ->
-%%    meta:splice(gen()).
-
 -splice(gen3).
 -splice(gen4).
-%%-splice({{jsonrecord2,encode_gen},[{rec2,[{record_field,8,{atom,8,id}},
-%%                                         {record_field,8,{atom,8,rec1}},
-%%                                         {record_field,8,{atom,8,int}}]}]}).
-
-%%-splice({{jsonrecord2,encode_gen},[meta:reify(#rec2{})]}).
-
-
-%%-splice({{jsonrecord2,encode_gen},[rec2]}).
-
-%%ee() ->
-%%    {ff, meta:splice(gen())}.
-
-%ee() ->
-%    meta:reify(#rec2{}).
-    
-%%ee2() ->
-%%    meta:splice(gen1()).
-
