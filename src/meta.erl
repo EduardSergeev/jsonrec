@@ -1,8 +1,10 @@
 
 -module(meta).
 
--export([parse_transform/2]).
--export([format_error/1]).
+-export([parse_transform/2,
+         format_error/1,
+
+         make_function/2]).
 
 -include("meta_syntax.hrl").
 
@@ -188,9 +190,8 @@ splice_attrib(Ln, Fun, Fs) ->
 eval_splice(Ln, Splice, Fs) ->
     Local = local_handler(Ln, Fs),
     try
-        Splice1 = erl_syntax:revert(Splice),
-        {value, Val, _} = erl_eval:exprs(Splice1, [], {eval, Local}),
-        Val
+        {value, Val, _} = erl_eval:exprs(Splice, [], {eval, Local}),
+        erl_syntax:revert(Val)
     catch
         error:{unbound, Var} ->
             meta_error(Ln, splice_external_var, Var);
@@ -295,3 +296,11 @@ format_error({splice_unknown_function, {Name,Arity}}) ->
 format(Format, Args) ->
     io_lib:format(Format, Args).
     
+
+%%%
+%%% Some handy functions
+%%%
+make_function(Name, Fun) ->
+    Cs = erl_syntax:fun_expr_clauses(Fun),
+    FD = erl_syntax:function(erl_syntax:atom(Name), Cs),
+    erl_syntax:revert(FD).
