@@ -10,11 +10,15 @@
 
 -record(info,
         {meta = [],
+         imports = dict:new(),
          types = dict:new(),
          records = dict:new(),
          functions = dict:new()}).
 
--record(splice, {vars, funs}).
+-record(splice,
+        {vars,
+         funs,
+         imports}).
 
 
 -define(CALL(Ln, Mod, Name, Args),
@@ -31,7 +35,7 @@
 
 
 parse_transform(Forms, _Options) ->
-%%    io:format("~p", [Forms]),
+    %%io:format("~p", [Forms]),
     Forms1 = form_traverse(fun quote/2, undefined, Forms),
 
     {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
@@ -40,12 +44,14 @@ parse_transform(Forms, _Options) ->
     %%io:format("~p", [Forms2]),
 
     {_, Info} = traverse(fun info/2, #info{}, Forms2),
-    %%io:format("~p", [Info]),
+    io:format("~p", [Info]),
     Fs = Info#info.functions,
+    Is = Info#info.imports,
 
     Forms3 = form_traverse(fun reify/2, Info, Forms2),    
 
-    Forms4 = form_traverse(fun splice/2, #splice{funs = Fs}, Forms3),
+    S = #splice{funs = Fs, imports = Is},
+    Forms4 = form_traverse(fun splice/2, S, Forms3),
     %%io:format("~p", [Forms3]),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms4))]),
     Forms4.
@@ -140,6 +146,11 @@ info(#attribute{name = meta, arg = Meta} = Form,
      #info{meta = Ms} = Info) ->
     Info1 = Info#info{meta = Ms ++ Meta},
     {Form, Info1};
+info(#attribute{name = import, arg = {Mod, Fs}} = Form,
+     #info{imports = Is} = Info) ->
+    Is1 = lists:foldl(fun(F,D) -> dict:store(F, {Mod,F}, D) end, Is, Fs),
+    Info1 = Info#info{imports = Is1},
+    {Form, Info1};
 info(#attribute{name = record, arg = {Name, _} = Def} = Form,
      #info{records = Rs} = Info) ->
     Rs1 = dict:store(Name, Def, Rs),
@@ -170,25 +181,25 @@ info(Form, Info) ->
 %%
 splice(#function{} = Func, S) ->
     traverse(fun splice/2, S#splice{vars = gb_sets:new()}, Func);
-splice(?SPLICE(Ln, Splice), #splice{funs = Fs} = S) ->
-    {eval_splice(Ln, Splice, Fs), S};
+splice(?SPLICE(Ln, Splice), #splice{funs = Fs, imports = Is} = S) ->
+    {eval_splice(Ln, Splice, Fs, Is), S};
 splice(#attribute{line = Ln, name = splice, arg = Fun},
-       #splice{funs = Fs} = S) ->
-    {splice_attrib(Ln, Fun, Fs), S};
+       #splice{funs = Fs, imports = Is} = S) ->
+    {splice_attrib(Ln, Fun, Fs, Is), S};
 %% splice(?CALL(Ln, Mod, Name, Args),
 %%       #splice{funs = Fs, metas = Ms, }) ->
 %%     case gb_sets:is_member(
 splice(Form, S) ->
     traverse(fun splice/2, S, Form).
 
-splice_attrib(Ln, {Fun,Args}, Fs) when is_list(Args) ->
-    Splice = make_splice(Fun, []),
-    eval_splice(Ln, Splice, Fs);   
-splice_attrib(Ln, Fun, Fs) ->
-    splice_attrib(Ln, {Fun,[]}, Fs).
+splice_attrib(Ln, {Fun,Args}, Fs, Is) when is_list(Args) ->
+    Splice = make_splice(Fun, Args),
+    eval_splice(Ln, Splice, Fs, Is);   
+splice_attrib(Ln, Fun, Fs, Is) ->
+    splice_attrib(Ln, {Fun,[]}, Fs, Is).
 
-eval_splice(Ln, Splice, Fs) ->
-    Local = local_handler(Ln, Fs),
+eval_splice(Ln, Splice, Fs, Is) ->
+    Local = local_handler(Ln, Fs, Is),
     try
         {value, Val, _} = erl_eval:exprs(Splice, [], {eval, Local}),
         erl_syntax:revert(Val)
@@ -205,17 +216,26 @@ eval_splice(Ln, Splice, Fs) ->
             meta_error(Ln, invalid_splice)
     end.
 
-local_handler(Ln, Fs) ->
+local_handler(Ln, Fs, Is) ->
     fun(Name, Args, Bs) ->
             Fn = {Name, length(Args)},
-            case dict:find(Fn, Fs) of
-                {ok, #function{clauses = Cs}} ->
-                    F = erl_syntax:fun_expr(Cs),
-                    A = erl_syntax:application(F, Args),
+            case dict:find(Fn, Is) of
+                {ok, {Mod,{Fun,_}}} ->
+                    M = erl_syntax:atom(Mod),
+                    F = erl_syntax:atom(Fun),
+                    A = erl_syntax:application(M, F, Args),
                     Call = erl_syntax:revert(A),
-                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs)});
+                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs, Is)});      
                 error ->
-                    meta_error(Ln, {splice_unknown_function, Fn})
+                    case dict:find(Fn, Fs) of
+                        {ok, #function{clauses = Cs}} ->
+                            F = erl_syntax:fun_expr(Cs),
+                            A = erl_syntax:application(F, Args),
+                            Call = erl_syntax:revert(A),
+                            erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs, Is)});
+                        error ->
+                            meta_error(Ln, {splice_unknown_function, Fn})
+                    end
             end
     end.
 
