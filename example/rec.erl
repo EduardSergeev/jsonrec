@@ -7,8 +7,16 @@
 -import(jsonrecord2, [encode_gen_ms/1, decode_gen_ms/1]).
 -meta([encode_gen_ms/1, decode_gen_ms/1, reify_record/1]).
 
--record(rec1, {id, fi}).
--record(rec2, {id, rec1, int, f1, f2, f3}).
+-record(rec1,
+        {id :: integer(),
+         fi :: binary()}).
+-record(rec2,
+        {id,
+         rec1 :: #rec1{},
+         int,
+         f1,
+         f2,
+         f3}).
 
 encode(#rec1{} = Rec) ->
     meta:splice(
@@ -31,3 +39,6 @@ decode(rec2, Binary) ->
      jsonrecord2:decode_gen_ms(
        Binary,
        meta:reify(#rec2{}))).
+
+t1() ->
+    meta:reify_type(#rec2{}).

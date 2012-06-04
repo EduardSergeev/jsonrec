@@ -196,7 +196,7 @@ eval_splice(Ln, Splice, Info) ->
     Vs = [{V, #var{line = Ln, name = V}} ||
              V <- gb_sets:to_list(Info#info.vars)],
     Bs = orddict:from_list([{info, Info}|Vs]),
-    Local = {eval, local_handler(Ln)},
+    Local = {eval, local_handler(Ln, Info)},
     try
         {value, Val, Bs1} = erl_eval:exprs(Splice, Bs, Local),
         Info1 = orddict:fetch(info, Bs1),
@@ -214,9 +214,9 @@ eval_splice(Ln, Splice, Info) ->
 %%            meta_error(Ln, invalid_splice)
     end.
 
-local_handler(Ln) ->
+local_handler(Ln, Info) ->
     fun(Name, Args, Bs) ->
-            #info{imports = Is, funs = Fs} = Info = orddict:fetch(info, Bs),
+            #info{imports = Is, funs = Fs} = Info,
             Fn = {Name, length(Args)},
             case dict:find(Fn, Is) of
                 {ok, {Mod,{Fun,_}}} ->
@@ -224,7 +224,7 @@ local_handler(Ln) ->
                     F = erl_syntax:atom(Fun),
                     A = erl_syntax:application(M, F, Args),
                     Call = erl_syntax:revert(A),
-                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln)});      
+                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Info)});      
                 error ->
                     case dict:is_key(Fn, Fs) of
                         true ->
@@ -232,8 +232,7 @@ local_handler(Ln) ->
                             F = erl_syntax:fun_expr(Cs),
                             A = erl_syntax:application(F, Args),
                             Call = erl_syntax:revert(A),
-                            Bs1 = orddict:store(info, Info1, Bs),
-                            erl_eval:expr(Call, Bs1, {eval, local_handler(Ln)});
+                            erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Info1)});
                         false ->
                             meta_error(Ln, {splice_unknown_function, Fn})
                     end

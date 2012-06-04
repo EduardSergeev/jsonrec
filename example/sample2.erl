@@ -62,7 +62,7 @@ t1() ->
 %%    meta:splice(expr1(1)).
 
 t11() ->
-    meta:splice(t1()).
+   meta:splice(t1()).
 
 t2() ->
     fun(A) ->
