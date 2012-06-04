@@ -232,7 +232,8 @@ local_handler(Ln, Info) ->
                             F = erl_syntax:fun_expr(Cs),
                             A = erl_syntax:application(F, Args),
                             Call = erl_syntax:revert(A),
-                            erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Info1)});
+                            Bs1 = orddict:store(info, Info1, Bs),
+                            erl_eval:expr(Call, Bs1, {eval, local_handler(Ln, Info1)});
                         false ->
                             meta_error(Ln, {splice_unknown_function, Fn})
                     end

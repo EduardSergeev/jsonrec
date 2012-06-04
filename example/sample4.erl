@@ -25,6 +25,12 @@ s35() ->
 s4(A) ->
    meta:splice(s2(A)).
 
+s45() ->
+    meta:splice(erl_parse:abstract(f(23))).
+
+f(N) ->
+    N*2.
+
 s5() ->
    meta:quote(meta:splice({integer,0,1})).
 

@@ -45,9 +45,9 @@ sample_splice() ->
     {'fun', Ln,{clauses, Cs}} = sample_fun(),
     {function, Ln, eee_fun, 1, Cs}.
 
--splice({{sample2,r1},[]}).
+%%-splice({{sample2,r1},[]}).
 
--splice(sample_splice).
+%%-splice(sample_splice).
 
 sample_res() ->
     sample_expr({integr,5,23}).
