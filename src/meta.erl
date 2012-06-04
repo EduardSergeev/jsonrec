@@ -13,12 +13,8 @@
          imports = dict:new(),
          types = dict:new(),
          records = dict:new(),
-         functions = dict:new()}).
-
--record(splice,
-        {vars,
-         funs,
-         imports}).
+         funs = dict:new(),
+         vars}).
 
 
 -define(CALL(Ln, Mod, Name, Args),
@@ -36,97 +32,115 @@
 
 parse_transform(Forms, _Options) ->
     %%io:format("~p", [Forms]),
-    Forms1 = form_traverse(fun quote/2, undefined, Forms),
-
-    {_, InfoPred} = traverse(fun info/2, #info{}, Forms1),
-
-    Forms2 = form_traverse(fun reify/2, InfoPred, Forms1),    
-    %%io:format("~p", [Forms2]),
-
-    {_, Info} = traverse(fun info/2, #info{}, Forms2),
-    io:format("~p", [Info]),
-    Fs = Info#info.functions,
-    Is = Info#info.imports,
-
-    Forms3 = form_traverse(fun reify/2, Info, Forms2),    
-
-    S = #splice{funs = Fs, imports = Is},
-    Forms4 = form_traverse(fun splice/2, S, Forms3),
-    %%io:format("~p", [Forms3]),
-    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms4))]),
-    Forms4.
+    {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
+    Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
+    {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
+    Forms2 = lists:map(insert(Info1), Forms1),
+    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
+    Forms2.
 
 
 %%
 %% meta:quote/1 handling
 %%
-quote(#function{} = Func, _) ->
-    traverse(fun quote/2, gb_sets:new(), Func);
-quote(?QUOTE(_, Quote), Vs) ->
-    {Ast, _} = term_to_ast(Quote, Vs),
-    {erl_syntax:revert(Ast), Vs};
-quote(#var{name = Name} = V, Vs) ->
-    {V, gb_sets:add(Name, Vs)};
-quote(#attribute{} = Form, Vs) ->
-    {Form, Vs};
-quote(Form, Vs) ->
-    traverse(fun quote/2, Vs, Form).
+process_fun(Fun, #info{funs = Fs} = Info) ->
+    {Def, State} = dict:fetch(Fun, Fs),
+    if
+        State =:= processed ->
+            {Def, Info};
+        State =:= raw ->
+            {Def1, #info{funs = Fs1} = Info1} = meta(Def, Info),
+            Fs2 = dict:store(Fun, {Def1, processed}, Fs1),
+            {Def1, Info1#info{funs = Fs2}}
+    end.
 
-term_to_ast(?QUOTE(Ln, _), _) ->
-    meta_error(Ln, nested_quote);
-term_to_ast(?SPLICE(Ln, _), _) ->
-    meta_error(Ln, nested_splice);
-term_to_ast(Ls, Vs) when is_list(Ls) ->
-    {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
-    {erl_syntax:list(Ls1), Vs};
-term_to_ast(#var{name = Name} = A, Vs) ->
-    case gb_sets:is_member(Name, Vs) of
-        true ->
-            {A, Vs};
-        false ->
-            tuple_to_ast(A, Vs)
-    end;
-term_to_ast(T, Vs) when is_tuple(T) ->
-    tuple_to_ast(T, Vs);
-term_to_ast(I, Vs) when is_integer(I) ->
-    {erl_syntax:integer(I), Vs};
-term_to_ast(A, Vs) when is_atom(A) ->
-    {erl_syntax:atom(A), Vs}.    
-    
-tuple_to_ast(T, Vs) ->
-    Ls = tuple_to_list(T),
-    {Ls1, _} = traverse(fun term_to_ast/2, Vs, Ls),
-    {erl_syntax:tuple(Ls1), Vs}.
+insert(#info{funs = Fs}) ->
+    fun(#function{name = Name, arity = Arity}) ->
+            Fun = {Name, Arity},
+            {Def, processed} = dict:fetch(Fun, Fs),
+            Def;
+       (Form) ->
+            Form
+    end.
 
+meta(#function{} = Func, Info) ->
+    Info1 = Info#info{vars = gb_sets:new()},
+    traverse(fun meta/2, Info1, Func);
+meta(?QUOTE(_, Quote), Info) ->
+    {Ast, Info1} = term_to_ast(Quote, Info),
+    {erl_syntax:revert(Ast), Info1};
+meta(#var{name = Name} = V, #info{vars = Vs} = Info) ->
+    Info1 = Info#info{vars = gb_sets:add(Name, Vs)},
+    {V, Info1};
+meta(#attribute{} = Form, Info) ->
+    {Form, Info};
+meta(?SPLICE(Ln, Splice), Info) ->
+    {Splice1, Info1} = traverse(fun meta/2, Info, Splice),
+    eval_splice(Ln, Splice1, Info1);
 
-%%
-%% meta:reify/1 handling
-%%
-reify(?REIFY(Ln, {'fun', _, {function, Name, Arity}}),
-      #info{functions = Fs} = Info) ->
+meta(?REIFY(Ln, {'fun', _, {function, Name, Arity}}),
+      #info{funs = Fs} = Info) ->
     Key = {Name, Arity},
-    {fetch(Ln, Key, Fs, reify_unknown_function),
-     Info};             
-reify(?REIFY(Ln, {record, _, Name, []}),
+    case dict:find(Key, Fs) of
+        {ok, _} ->
+            {Def, Info1} = process_fun(Key, Info),
+            {Ast, Info2} = term_to_ast(Def, Info1),
+            {erl_syntax:revert(Ast), Info2};
+        error ->
+            meta_error(Ln, {reify_unknown_function, Key})
+    end;
+meta(?REIFY(Ln, {record, _, Name, []}),
       #info{records = Rs} = Info) ->
     {fetch(Ln, Name, Rs, reify_unknown_record),
      Info};             
-reify(?REIFYTYPE(Ln, #call{function = #atom{name = Name}, args = _Args}),
+meta(?REIFYTYPE(Ln, #call{function = #atom{name = Name}, args = _Args}),
       #info{types = Ts} = Info) ->
     {fetch(Ln, Name, Ts, reify_unknown_type),
      Info};             
-reify(?REIFYTYPE(Ln, {record, _, Name, []}),
+meta(?REIFYTYPE(Ln, {record, _, Name, []}),
       #info{types = Ts} = Info) ->
     Key = {record, Name},
     {fetch(Ln, Key, Ts, reify_unknown_record_type),
      Info};
-reify(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
+meta(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
       #info{types = Ts} = Info) ->
     Key = {Name, Arity},
     {fetch(Ln, Key, Ts, reify_unknown_function_spec),
      Info};
-reify(Form, Info) ->
-    traverse(fun reify/2, Info, Form).
+
+meta(Form, Info) ->
+    traverse(fun meta/2, Info, Form).
+
+
+
+
+term_to_ast(?QUOTE(Ln, _), _) ->
+    meta_error(Ln, nested_quote);
+term_to_ast(?SPLICE(_, _) = Form, Info) ->
+    {Form1, Info1} = meta(Form, Info),
+    term_to_ast(Form1, Info1);
+term_to_ast(Ls, Info) when is_list(Ls) ->
+    {Ls1, _} = traverse(fun term_to_ast/2, Info, Ls),
+    {erl_syntax:list(Ls1), Info};
+term_to_ast(#var{name = Name} = A, #info{vars = Vs} = Info) ->
+    case gb_sets:is_member(Name, Vs) of
+        true ->
+            {A, Info};
+        false ->
+            tuple_to_ast(A, Info)
+    end;
+term_to_ast(T, Info) when is_tuple(T) ->
+    tuple_to_ast(T, Info);
+term_to_ast(I, Info) when is_integer(I) ->
+    {erl_syntax:integer(I), Info};
+term_to_ast(A, Info) when is_atom(A) ->
+    {erl_syntax:atom(A), Info}.    
+    
+tuple_to_ast(T, Info) ->
+    Ls = tuple_to_list(T),
+    {Ls1, Info1} = traverse(fun term_to_ast/2, Info, Ls),
+    {erl_syntax:tuple(Ls1), Info1}.
+
 
 fetch(Line, Name, Dict, Error) ->
     case dict:find(Name, Dict) of
@@ -169,40 +183,24 @@ info(#attribute{name = spec, arg = Def} = Form,
     Info1 = Info#info{types = Ts1},
     {Form, Info1};
 info(#function{name = Name, arity = Arity} = Form,
-     #info{functions = Fs} = Info) ->
-    Info1 = Info#info{functions = dict:store({Name,Arity}, Form, Fs)},
-    {Form, Info1};
+     #info{funs = Fs} = Info) ->
+    Key = {Name,Arity},
+    Value = {Form, raw},
+    Info1 = Info#info{funs = dict:store(Key, Value, Fs)},
+    Form1 = Form#function{clauses = undefined},
+    {Form1, Info1};
 info(Form, Info) ->
     traverse(fun info/2, Info, Form).
     
-
-%%
-%% mete:splice/1 handling
-%%
-splice(#function{} = Func, S) ->
-    traverse(fun splice/2, S#splice{vars = gb_sets:new()}, Func);
-splice(?SPLICE(Ln, Splice), #splice{funs = Fs, imports = Is} = S) ->
-    {eval_splice(Ln, Splice, Fs, Is), S};
-splice(#attribute{line = Ln, name = splice, arg = Fun},
-       #splice{funs = Fs, imports = Is} = S) ->
-    {splice_attrib(Ln, Fun, Fs, Is), S};
-%% splice(?CALL(Ln, Mod, Name, Args),
-%%       #splice{funs = Fs, metas = Ms, }) ->
-%%     case gb_sets:is_member(
-splice(Form, S) ->
-    traverse(fun splice/2, S, Form).
-
-splice_attrib(Ln, {Fun,Args}, Fs, Is) when is_list(Args) ->
-    Splice = make_splice(Fun, Args),
-    eval_splice(Ln, Splice, Fs, Is);   
-splice_attrib(Ln, Fun, Fs, Is) ->
-    splice_attrib(Ln, {Fun,[]}, Fs, Is).
-
-eval_splice(Ln, Splice, Fs, Is) ->
-    Local = local_handler(Ln, Fs, Is),
+eval_splice(Ln, Splice, Info) ->
+    Vs = [{V, #var{line = Ln, name = V}} ||
+             V <- gb_sets:to_list(Info#info.vars)],
+    Bs = orddict:from_list([{info, Info}|Vs]),
+    Local = {eval, local_handler(Ln)},
     try
-        {value, Val, _} = erl_eval:exprs(Splice, [], {eval, Local}),
-        erl_syntax:revert(Val)
+        {value, Val, Bs1} = erl_eval:exprs(Splice, Bs, Local),
+        Info1 = orddict:fetch(info, Bs1),
+        {erl_syntax:revert(Val), Info1}
     catch
         error:{unbound, Var} ->
             meta_error(Ln, splice_external_var, Var);
@@ -210,14 +208,15 @@ eval_splice(Ln, Splice, Fs, Is) ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
             meta_error(Ln, splice_badfun);
-%%        error:undef ->
-%%            meta_error(Ln, splice_unknown_external_function);
-        error:_ ->
-            meta_error(Ln, invalid_splice)
+        error:undef ->
+            meta_error(Ln, splice_unknown_external_function)
+%%        error:_ ->
+%%            meta_error(Ln, invalid_splice)
     end.
 
-local_handler(Ln, Fs, Is) ->
+local_handler(Ln) ->
     fun(Name, Args, Bs) ->
+            #info{imports = Is, funs = Fs} = Info = orddict:fetch(info, Bs),
             Fn = {Name, length(Args)},
             case dict:find(Fn, Is) of
                 {ok, {Mod,{Fun,_}}} ->
@@ -225,31 +224,21 @@ local_handler(Ln, Fs, Is) ->
                     F = erl_syntax:atom(Fun),
                     A = erl_syntax:application(M, F, Args),
                     Call = erl_syntax:revert(A),
-                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs, Is)});      
+                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln)});      
                 error ->
-                    case dict:find(Fn, Fs) of
-                        {ok, #function{clauses = Cs}} ->
+                    case dict:is_key(Fn, Fs) of
+                        true ->
+                            {#function{clauses = Cs}, Info1} = process_fun(Fn, Info),
                             F = erl_syntax:fun_expr(Cs),
                             A = erl_syntax:application(F, Args),
                             Call = erl_syntax:revert(A),
-                            erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Fs, Is)});
-                        error ->
+                            Bs1 = orddict:store(info, Info1, Bs),
+                            erl_eval:expr(Call, Bs1, {eval, local_handler(Ln)});
+                        false ->
                             meta_error(Ln, {splice_unknown_function, Fn})
                     end
             end
     end.
-
-make_splice({Mod,Fun}, Args) ->
-    M = erl_syntax:atom(Mod),
-    F = erl_syntax:atom(Fun),
-    Args1 = lists:map(fun erl_syntax:abstract/1, Args),
-    Ast = erl_syntax:application(M, F, Args1),
-    [erl_syntax:revert(Ast)];
-make_splice(Fun, Args) ->
-    F = erl_syntax:atom(Fun),
-    Args1 = lists:map(fun erl_syntax:abstract/1, Args),
-    Ast = erl_syntax:application(none, F, Args1),
-    [erl_syntax:revert(Ast)].
 
 
 %%
@@ -264,7 +253,7 @@ traverse(Fun, Acc, Fs) when is_list(Fs) ->
 traverse(_Fun, Acc, Smt) ->
     {Smt, Acc}.
 
-form_traverse(Fun, Acc, Forms) ->
+safe_mapfoldl(Fun, Acc, Forms) ->
     Do = fun(F, A) ->
                  try
                      Fun(F, A)
@@ -275,8 +264,7 @@ form_traverse(Fun, Acc, Forms) ->
                          {{error, {Line, ?MODULE, Reason}}, A1}
                  end
          end,    
-    {Forms1, _} = lists:mapfoldl(Do, Acc, Forms),
-    Forms1.
+    lists:mapfoldl(Do, Acc, Forms).
 
 
 meta_error(Line, Error) ->

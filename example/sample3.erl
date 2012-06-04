@@ -21,8 +21,6 @@
 
 -type my_type(A,B) :: {A,[B]}.
 
-spl1() ->
-    do([ghh || A <- gg]).
 
 -spec f1() -> any().
 f1() ->
@@ -54,6 +52,6 @@ mk_rec(Name) ->
 mk_rec_foo() ->
     mk_rec(foo).
 
-gg() ->
-    F = #foo{id = 5},
-    F.
+%%gg() ->
+%%    F = #foo{id = 5},
+%%    F.

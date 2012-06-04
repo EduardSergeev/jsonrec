@@ -8,19 +8,26 @@
 -meta([encode_gen_ms/1, decode_gen_ms/1, reify_record/1]).
 
 -record(rec1, {id, fi}).
-%% -record(rec2, {id, rec1, int, f1, f2, f3}).
+-record(rec2, {id, rec1, int, f1, f2, f3}).
 
-t() ->
-    meta:reify(#rec1{}).
+encode(#rec1{} = Rec) ->
+    meta:splice(
+      jsonrecord2:encode_gen_ms(
+        Rec,
+        meta:reify(#rec1{})));
+encode(#rec2{} = Rec) ->
+    meta:splice(
+      jsonrecord2:encode_gen_ms(
+        Rec,
+        meta:reify(#rec2{}))).
 
-%%gen3() ->
-%%    encode_gen_ms(meta:reify(#rec1{})).
-
-gen4() ->
-    jsonrecord2:decode_gen_ms(meta:reify(#rec1{})).
-
-%%-splice(gen3).
-
--splice({encode_gen_ms,[{rec1,[{record_field,10,{atom,10,id}},
-                               {record_field,10,{atom,10,fi}}]}]}).
--splice(gen4).
+decode(rec1, Binary) ->
+   meta:splice(
+     jsonrecord2:decode_gen_ms(
+       Binary,
+       meta:reify(#rec1{})));
+decode(rec2, Binary) ->
+   meta:splice(
+     jsonrecord2:decode_gen_ms(
+       Binary,
+       meta:reify(#rec2{}))).
