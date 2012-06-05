@@ -6,15 +6,15 @@
 -export([encode_gen_ms/2,
          decode_gen_ms/2,
 
-         encode_gen_ms2/4,
-         decode_gen_ms2/2]).
+         encode_gen_ms/4,
+         decode_gen_ms/4]).
 
 
 encode_gen_ms(Rec, {_Name, Fields}) ->
     EFs = encode_fields_ms(Fields, Rec),
     meta:quote(mochijson2:encode({struct, EFs})).
 
-encode_gen_ms2(Rec,
+encode_gen_ms(Rec,
                {Name, Fields},
                {{record, Name}, TypeDefs, []},
                Mps) ->
@@ -27,30 +27,27 @@ decode_gen_ms(Js, {Name, Fields}) ->
     FTI = gen_field_to_integer(Fields),
     AN = erl_parse:abstract(Name),
     meta:quote(
-      begin
-          FieldToI = FTI,
-          case mochijson2:decode(Js) of
-              {struct, Fs} ->
-                  Fs1 = [{FieldToI(F), V} || {F,V} <- Fs],
-                  Fs2 = [{1,AN} | [{I,V} || {I,V} <- Fs1, is_integer(I)]],
-                  erlang:make_tuple(AS, undefined, Fs2)
-          end
+      case mochijson2:decode(Js) of
+          {struct, Fs} ->
+              Fs1 = [{FTI(F), V} || {F,V} <- Fs],
+              Fs2 = [{1,AN} | [{I,V} || {I,V} <- Fs1, is_integer(I)]],
+              erlang:make_tuple(AS, undefined, Fs2)
       end).
 
-decode_gen_ms2(Js, {Name, Fields}) ->
+decode_gen_ms(Struct,
+               {Name, Fields},
+               {{record, Name}, TypeDefs, []},
+               Mps) ->
     Size = length(Fields) + 1,
     AS = erl_parse:abstract(Size),
-    FTI = gen_field_to_integer(Fields),
+    FTI = gen_field_to_integer(Fields, TypeDefs, Mps),
     AN = erl_parse:abstract(Name),
     meta:quote(
-      begin
-          FieldToI = FTI,
-          case mochijson2:decode(Js) of
-              {struct, Fs} ->
-                  Fs1 = [{FieldToI(F), V} || {F,V} <- Fs],
-                  Fs2 = [{1,AN} | [{I,V} || {I,V} <- Fs1, is_integer(I)]],
-                  erlang:make_tuple(AS, undefined, Fs2)
-          end
+      case Struct of
+          {struct, Fs} ->
+              Fs1 = [FTI(F,V) || {F,V} <- Fs],
+              Fs2 = [{1,AN} | [T || T <- Fs1, is_tuple(T)]],
+              erlang:make_tuple(AS, undefined, Fs2)
       end).
 
 
@@ -86,7 +83,8 @@ encode_field(FN, Ind, Rec) ->
           end
       end).
 
-encode_field2(Ind, {_, _, #atom{name = Fn}}, {record_field, _, #atom{name = Fn}}, Rec, _) ->
+encode_field2(Ind, {_, _, #atom{name = Fn}},
+              {record_field, _, #atom{name = Fn}}, Rec, _) ->
     AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
     AInd = erl_parse:abstract(Ind),
     meta:quote(
@@ -104,7 +102,12 @@ encode_field2(Ind, {_, _, #atom{name = Fn}} = Field,
     {record_field, _, #atom{name = Fn}} = F,
     case T of
         {type, _, union, [_Und, {type, _, record, [{atom, _, Name}]}]} ->
-            Fun = proplists:get_value(Name, Mps),
+            Fun = if
+                      is_list(Mps) ->
+                          proplists:get_value(Name, Mps);
+                      true ->
+                          Mps
+                  end,
             AFun = erl_parse:abstract(Fun),
             AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
             AInd = erl_parse:abstract(Ind),
@@ -122,7 +125,12 @@ encode_field2(Ind, {_, _, #atom{name = Fn}} = Field,
          [_Und,
           {type, _, list,
            [{type, _, record, [{atom, _, Name}]}]}]} ->
-            Fun = proplists:get_value(Name, Mps),
+            Fun = if
+                      is_list(Mps) ->
+                          proplists:get_value(Name, Mps);
+                      true ->
+                          Mps
+                  end,
             AFun = erl_parse:abstract(Fun),
             AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
             AInd = erl_parse:abstract(Ind),
@@ -165,6 +173,68 @@ decode_field(FieldName, Index) ->
     AFN = erl_parse:abstract(FieldName),
     AInd = erl_parse:abstract(Index),
     erl_syntax:clause([AFN], none, [AInd]).
+
+
+gen_field_to_integer(Fields, Types, Mps) ->
+    NFTs = lists:zip3(lists:seq(2, length(Fields)+1), Fields, Types),
+    Es = [decode_field(N,F,T,Mps) || {N,F,T} <- NFTs],
+    Last = erl_syntax:clause(
+             [erl_syntax:underscore(),erl_syntax:underscore()],
+             none,
+             [meta:quote(undefined)]),
+    Es1 = Es ++ [Last],
+    Ast = erl_syntax:fun_expr(Es1),
+    erl_syntax:revert(Ast).
+
+decode_field(Index,
+             {_, _, #atom{name = Fn}},
+             {record_field, _, #atom{name = Fn}},
+             _) ->
+    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    Var = meta:quote(V0),
+    AInd = erl_parse:abstract(Index),
+    Res = meta:quote({AInd,Var}),
+    erl_syntax:clause([AFN, Var], none, [Res]);
+decode_field(Index,
+             {_, _, #atom{name = Fn}} = Field,
+             {typed_record_field, F, T},
+             Mps) ->
+    case T of
+        {type, _, union,
+         [_Und,
+          {type, _, record, [{atom, _, Name}]}]} ->
+            Fun = get_fun(Name, Mps),
+            AFun = erl_parse:abstract(Fun),
+            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+            Var = meta:quote(V1),
+            AInd = erl_parse:abstract(Index),
+            Type = erl_parse:abstract(Name),
+            Res = meta:quote({AInd,AFun(Type, Var)}),
+            erl_syntax:clause([AFN, Var], none, [Res]);
+        {type, _, union,
+         [_Und,
+          {type, _, list,
+           [{type, _, record, [{atom, _, Name}]}]}]} ->
+            Fun = get_fun(Name, Mps),
+            AFun = erl_parse:abstract(Fun),
+            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+            Var = meta:quote(Vs),
+            AInd = erl_parse:abstract(Index),
+            Type = erl_parse:abstract(Name),
+            Res = meta:quote({AInd,[AFun(Type, V2) || V2 <- Var]}),
+            erl_syntax:clause([AFN, Var], none, [Res]);
+        _ ->
+            decode_field(Index, Field, F, Mps)
+    end.
+
+            
+
+    
+get_fun(Name, Mps) when is_list(Mps) ->
+    proplist:get_value(Name, Mps);
+get_fun(_, FunName) ->
+    FunName.
+
     
              
 %%

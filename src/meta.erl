@@ -31,7 +31,7 @@
 
 
 parse_transform(Forms, _Options) ->
-    io:format("~p", [Forms]),
+    %%io:format("~p", [Forms]),
     {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
     Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
     {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
@@ -312,3 +312,5 @@ make_function(Name, Fun) ->
     Cs = erl_syntax:fun_expr_clauses(Fun),
     FD = erl_syntax:function(erl_syntax:atom(Name), Cs),
     erl_syntax:revert(FD).
+
+
