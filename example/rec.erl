@@ -10,10 +10,13 @@
 -record(rec1,
         {id :: integer(),
          fi :: binary()}).
+-record(rec3,
+        {id :: integer(), field}).
+
 -record(rec2,
         {id,
          rec1 :: #rec1{},
-         int,
+         recs3 :: [#rec3{}],
          f1,
          f2,
          f3}).
@@ -56,7 +59,16 @@ to_struct(#rec2{} = Rec) ->
         Rec,
         meta:reify(#rec2{}),
         meta:reify_type(#rec2{}),
-        [{rec1, to_struct}])).
+        [{rec1, to_struct},
+         {rec3, to_struct}]));
+to_struct(#rec3{} = Rec) ->
+    meta:splice(
+      jsonrecord2:encode_gen_ms2(
+        Rec,
+        meta:reify(#rec3{}),
+        meta:reify_type(#rec3{}),
+        [])).
+
 
 encode2(Rec) ->
     mochijson2:encode(to_struct(Rec)).

@@ -118,9 +118,28 @@ encode_field2(Ind, {_, _, #atom{name = Fn}} = Field,
                               [{AFN, AFun(V)}|Acc]
                       end
               end);
+        {type, _, union,
+         [_Und,
+          {type, _, list,
+           [{type, _, record, [{atom, _, Name}]}]}]} ->
+            Fun = proplists:get_value(Name, Mps),
+            AFun = erl_parse:abstract(Fun),
+            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+            AInd = erl_parse:abstract(Ind),
+            meta:quote(
+              fun(Acc) ->
+                      Vs = element(AInd, Rec),
+                      if 
+                          Vs =:= undefined ->
+                              Acc;
+                          true ->
+                              [{AFN, [AFun(V) || V <- Vs]}|Acc]
+                      end
+              end);
         _ ->
             encode_field2(Ind, Field, F, Rec, Mps)
     end.
+
             
                                                                                
 
