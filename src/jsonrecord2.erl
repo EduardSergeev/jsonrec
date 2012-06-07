@@ -83,8 +83,21 @@ encode_field(FN, Ind, Rec) ->
           end
       end).
 
-encode_field2(Ind, {_, _, #atom{name = Fn}},
-              {record_field, _, #atom{name = Fn}}, Rec, _) ->
+encode_field2(Ind, {record_field, _Ln, #atom{name = Fn}} = RF,
+              RF, Rec, _) ->
+    encode_plain(Ind, Fn, Rec);
+encode_field2(Ind, {record_field, _Ln, #atom{name = Fn}, _Def} = RF,
+              RF, Rec, _) ->
+    encode_plain(Ind, Fn, Rec);
+
+encode_field2(Ind, {record_field, _Ln, #atom{name = Fn}} = RF,
+              {typed_record_field, RF, T}, Rec, Mps) ->
+    encode_typed(Ind, RF, Fn, T, Rec, Mps);
+encode_field2(Ind, {record_field, _Ln, #atom{name = Fn}, _Def} = RF,
+              {typed_record_field, RF, T}, Rec, Mps) ->
+    encode_typed(Ind, RF, Fn, T, Rec, Mps).
+
+encode_plain(Ind, Fn, Rec) ->            
     AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
     AInd = erl_parse:abstract(Ind),
     meta:quote(
@@ -96,60 +109,64 @@ encode_field2(Ind, {_, _, #atom{name = Fn}},
               true ->
                   [{AFN, V}|Acc]
           end
-      end);
-encode_field2(Ind, {_, _, #atom{name = Fn}} = Field,
-              {typed_record_field, F, T}, Rec, Mps) ->
-    {record_field, _, #atom{name = Fn}} = F,
+      end).
+
+encode_typed(Ind, RF, Fn, T, Rec, Mps) ->
     case T of
-        {type, _, union, [_Und, {type, _, record, [{atom, _, Name}]}]} ->
-            Fun = if
-                      is_list(Mps) ->
-                          proplists:get_value(Name, Mps);
-                      true ->
-                          Mps
-                  end,
-            AFun = erl_parse:abstract(Fun),
-            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
-            AInd = erl_parse:abstract(Ind),
-            meta:quote(
-              fun(Acc) ->
-                      V = element(AInd, Rec),
-                      if 
-                          V =:= undefined ->
-                              Acc;
-                          true ->
-                              [{AFN, AFun(V)}|Acc]
-                      end
-              end);
+        {type, _, union,
+         [_Und, {type, _, record, [{atom, _, Name}]}]} ->
+            Fun = get_fun(Name, Mps),
+            encode_record(Ind, Fn, Fun, Rec);
+        {type, _, record,
+         [{atom, _, Name}]} ->
+            Fun = get_fun(Name, Mps),
+            encode_record(Ind, Fn, Fun, Rec);
+        {type, _, list,
+         [{type, _, record, [{atom, _, Name}]}]} ->
+            Fun = get_fun(Name, Mps),
+            encode_list(Ind, Fn, Fun, Rec);
         {type, _, union,
          [_Und,
           {type, _, list,
            [{type, _, record, [{atom, _, Name}]}]}]} ->
-            Fun = if
-                      is_list(Mps) ->
-                          proplists:get_value(Name, Mps);
-                      true ->
-                          Mps
-                  end,
-            AFun = erl_parse:abstract(Fun),
-            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
-            AInd = erl_parse:abstract(Ind),
-            meta:quote(
-              fun(Acc) ->
-                      Vs = element(AInd, Rec),
-                      if 
-                          Vs =:= undefined ->
-                              Acc;
-                          true ->
-                              [{AFN, [AFun(V) || V <- Vs]}|Acc]
-                      end
-              end);
+            Fun = get_fun(Name, Mps),
+            encode_list(Ind, Fn, Fun, Rec);
         _ ->
-            encode_field2(Ind, Field, F, Rec, Mps)
+            encode_field2(Ind, RF, RF, Rec, Mps)
     end.
 
-            
-                                                                               
+
+encode_record(Ind, Fn, Fun, Rec) ->
+    AFun = erl_parse:abstract(Fun),
+    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    AInd = erl_parse:abstract(Ind),
+    meta:quote(
+      fun(Acc) ->
+              V = element(AInd, Rec),
+              if 
+                  V =:= undefined ->
+                      Acc;
+                  true ->
+                      [{AFN, AFun(V)}|Acc]
+              end
+      end).
+
+encode_list(Ind, Fn, Fun, Rec) ->
+    AFun = erl_parse:abstract(Fun),
+    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    AInd = erl_parse:abstract(Ind),
+    meta:quote(
+      fun(Acc) ->
+              Vs = element(AInd, Rec),
+              if 
+                  Vs =:= undefined ->
+                      Acc;
+                  true ->
+                      [{AFN, [AFun(V) || V <- Vs]}|Acc]
+              end
+      end).
+
+
 
 
 
@@ -186,47 +203,70 @@ gen_field_to_integer(Fields, Types, Mps) ->
     Ast = erl_syntax:fun_expr(Es1),
     erl_syntax:revert(Ast).
 
-decode_field(Index,
-             {_, _, #atom{name = Fn}},
-             {record_field, _, #atom{name = Fn}},
-             _) ->
+decode_field(Ind, {record_field, _, #atom{name = Fn}} = RF,
+             RF, _) ->
+    decode_plain(Ind, Fn);
+decode_field(Ind,{record_field, _, #atom{name = Fn}, _Def} = RF,
+             RF, _) ->
+    decode_plain(Ind, Fn);
+
+decode_field(Ind, {_, _, #atom{name = Fn}} = RF,
+             {typed_record_field, RF, T}, Mps) ->
+    decode_typed(Ind, RF, Fn, T, Mps);
+decode_field(Ind, {_, _, #atom{name = Fn}, _Def} = RF,
+             {typed_record_field, RF, T}, Mps) ->
+    decode_typed(Ind, RF, Fn, T, Mps).
+
+decode_plain(Ind, Fn) ->
     AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
     Var = meta:quote(V0),
-    AInd = erl_parse:abstract(Index),
+    AInd = erl_parse:abstract(Ind),
     Res = meta:quote({AInd,Var}),
-    erl_syntax:clause([AFN, Var], none, [Res]);
-decode_field(Index,
-             {_, _, #atom{name = Fn}} = Field,
-             {typed_record_field, F, T},
-             Mps) ->
+    erl_syntax:clause([AFN, Var], none, [Res]).
+
+decode_typed(Ind, RF, Fn, T, Mps) ->   
     case T of
         {type, _, union,
          [_Und,
           {type, _, record, [{atom, _, Name}]}]} ->
             Fun = get_fun(Name, Mps),
-            AFun = erl_parse:abstract(Fun),
-            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
-            Var = meta:quote(V1),
-            AInd = erl_parse:abstract(Index),
-            Type = erl_parse:abstract(Name),
-            Res = meta:quote({AInd,AFun(Type, Var)}),
-            erl_syntax:clause([AFN, Var], none, [Res]);
+            decode_record(Ind, Fn, Name, Fun);
+        {type, _, record,
+         [{atom, _, Name}]} ->
+            Fun = get_fun(Name, Mps),
+            decode_record(Ind, Fn, Name, Fun);
+        {type, _, list,
+         [{type, _, record, [{atom, _, Name}]}]} ->
+            Fun = get_fun(Name, Mps),
+            decode_list(Ind, Fn, Name, Fun);
         {type, _, union,
          [_Und,
           {type, _, list,
            [{type, _, record, [{atom, _, Name}]}]}]} ->
             Fun = get_fun(Name, Mps),
-            AFun = erl_parse:abstract(Fun),
-            AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
-            Var = meta:quote(Vs),
-            AInd = erl_parse:abstract(Index),
-            Type = erl_parse:abstract(Name),
-            Res = meta:quote({AInd,[AFun(Type, V2) || V2 <- Var]}),
-            erl_syntax:clause([AFN, Var], none, [Res]);
+            decode_list(Ind, Fn, Name, Fun);
         _ ->
-            decode_field(Index, Field, F, Mps)
+            decode_field(Ind, RF, RF, Mps)
     end.
+    
 
+decode_record(Index, Fn, Name, Fun) ->
+    AFun = erl_parse:abstract(Fun),
+    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    Var = meta:quote(V1),
+    AInd = erl_parse:abstract(Index),
+    Type = erl_parse:abstract(Name),
+    Res = meta:quote({AInd,AFun(Type, Var)}),
+    erl_syntax:clause([AFN, Var], none, [Res]).
+
+decode_list(Index, Fn, Name, Fun) ->
+    AFun = erl_parse:abstract(Fun),
+    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    Var = meta:quote(Vs),
+    AInd = erl_parse:abstract(Index),
+    Type = erl_parse:abstract(Name),
+    Res = meta:quote({AInd,[AFun(Type, V2) || V2 <- Var]}),
+    erl_syntax:clause([AFN, Var], none, [Res]).
             
 
     

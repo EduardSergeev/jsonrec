@@ -31,10 +31,10 @@
 
 
 parse_transform(Forms, _Options) ->
-    %%io:format("~p", [Forms]),
+    io:format("~p", [Forms]),
     {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
     Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
-    {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
+    {_, Info1} = lists:mapfoldl(fun process_fun/2, Info, Funs),
     Forms2 = lists:map(insert(Info1), Forms1),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
