@@ -95,22 +95,18 @@ meta(?REIFY(Ln, {'fun', _, {function, Name, Arity}}),
     end;
 meta(?REIFY(Ln, {record, _, Name, []}),
       #info{records = Rs} = Info) ->
-    {fetch(Ln, Name, Rs, reify_unknown_record),
-     Info};             
+    fetch(Ln, Name, Rs, reify_unknown_record, Info);             
 meta(?REIFYTYPE(Ln, #call{function = #atom{name = Name}, args = _Args}),
       #info{types = Ts} = Info) ->
-    {fetch(Ln, Name, Ts, reify_unknown_type),
-     Info};             
+    fetch(Ln, Name, Ts, reify_unknown_type, Info);             
 meta(?REIFYTYPE(Ln, {record, _, Name, []}),
       #info{types = Ts} = Info) ->
     Key = {record, Name},
-    {fetch(Ln, Key, Ts, reify_unknown_record_type),
-     Info};
+    fetch(Ln, Key, Ts, reify_unknown_record_type, Info);
 meta(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
       #info{types = Ts} = Info) ->
     Key = {Name, Arity},
-    {fetch(Ln, Key, Ts, reify_unknown_function_spec),
-     Info};
+    fetch(Ln, Key, Ts, reify_unknown_function_spec, Info);
 
 meta(Form, Info) ->
     traverse(fun meta/2, Info, Form).
@@ -146,11 +142,11 @@ tuple_to_ast(T, Info) ->
     {erl_syntax:tuple(Ls1), Info1}.
 
 
-fetch(Line, Name, Dict, Error) ->
+fetch(Line, Name, Dict, Error, Info) ->
     case dict:find(Name, Dict) of
         {ok, Def} ->
-            {Ast, _} = term_to_ast(Def, gb_sets:new()),
-            erl_syntax:revert(Ast);
+            {Ast, Info1} = term_to_ast(Def, Info),
+            {erl_syntax:revert(Ast), Info1};
         error ->
             meta_error(Line, {Error, Name})
     end.
