@@ -34,7 +34,7 @@ parse_transform(Forms, _Options) ->
     io:format("~p", [Forms]),
     {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
     Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
-    {_, Info1} = lists:mapfoldl(fun process_fun/2, Info, Funs),
+    {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
     Forms2 = lists:map(insert(Info1), Forms1),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
@@ -57,8 +57,12 @@ process_fun(Fun, #info{funs = Fs} = Info) ->
 insert(#info{funs = Fs}) ->
     fun(#function{name = Name, arity = Arity}) ->
             Fun = {Name, Arity},
-            {Def, processed} = dict:fetch(Fun, Fs),
-            Def;
+            case dict:fetch(Fun, Fs) of
+                {Def, processed} ->
+                    Def;
+                {error, _} = Err ->
+                    Err
+            end;
        (Form) ->
             Form
     end.
@@ -253,18 +257,17 @@ traverse(Fun, Acc, Fs) when is_list(Fs) ->
 traverse(_Fun, Acc, Smt) ->
     {Smt, Acc}.
 
-safe_mapfoldl(Fun, Acc, Forms) ->
-    Do = fun(F, A) ->
+safe_mapfoldl(Fun, Info, Fns) ->
+    Do = fun(Fn, #info{funs = Fs} = I) ->
                  try
-                     Fun(F, A)
+                     Fun(Fn, I)
                  catch
                      throw:{Line, Reason} ->
-                         {{error, {Line, ?MODULE, Reason}}, A};
-                     throw:{Line, Reason, A1} ->
-                         {{error, {Line, ?MODULE, Reason}}, A1}
+                         E = {error, {Line, ?MODULE, Reason}},
+                         {E, I#info{funs = dict:store(Fn, E, Fs)}}
                  end
          end,    
-    lists:mapfoldl(Do, Acc, Forms).
+    lists:mapfoldl(Do, Info, Fns).
 
 
 meta_error(Line, Error) ->

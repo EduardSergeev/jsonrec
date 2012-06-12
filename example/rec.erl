@@ -49,7 +49,7 @@ to_struct(#rec3{} = Rec) ->
         to_struct)).
 
 
-encode2(Rec) ->
+encode(Rec) ->
     mochijson2:encode(to_struct(Rec)).
 
 
@@ -76,7 +76,7 @@ from_struct(rec3, Struct) ->
         from_struct)).
 
 
-decode2(Type, Binary) ->
+decode(Type, Binary) ->
     from_struct(Type,
                 mochijson2:decode(Binary)).
     
