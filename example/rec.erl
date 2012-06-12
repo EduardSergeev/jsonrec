@@ -20,7 +20,7 @@
 
 -record(rec2,
         {id,
-         rec1 = #rec1{} :: #rec1{},
+         rec1 = #rec1{id = 0} :: #rec1{},
          recs3 = [] :: [#rec3{}],
          f1 = false,
          f2,
