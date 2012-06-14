@@ -37,8 +37,9 @@ s5() ->
 s6() ->
    meta:quote(1+2).
 
-%%s7() ->
-%%   meta:reify(fun s2/1).
+%% s7() ->
+%%    meta:reify(fun s2/1).
+
 
 s8() ->
     meta:splice(s15()).

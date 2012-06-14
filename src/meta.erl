@@ -17,24 +17,30 @@
          vars}).
 
 
--define(CALL(Ln, Mod, Name, Args),
+-define(REMOTE_CALL(Ln, Mod, Name, Args),
         #call{line = Ln,
               function = #remote
               {module = #atom{name = Mod},
                name = #atom{name = Name}},
               args = Args}).
--define(META_CALL(Ln, Name, Args), ?CALL(Ln, meta, Name, Args)).
+-define(LOCAL_CALL(Ln, Name, Args),
+        #call{line = Ln,
+              function = #atom{name = Name},
+              args = Args}).
+-define(META_CALL(Ln, Name, Args), ?REMOTE_CALL(Ln, meta, Name, Args)).
 -define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
 -define(REIFY(Ln, Name), ?META_CALL(Ln, reify, [Name])).
 -define(REIFYTYPE(Ln, Name), ?META_CALL(Ln, reify_type, [Name])).
+-define(REIFY_ALL_TYPES(Ln), ?META_CALL(Ln, reify_types, [])).
 -define(SPLICE(Ln, Var), ?META_CALL(Ln, splice, Var)).
 
 
 parse_transform(Forms, _Options) ->
-    io:format("~p", [Forms]),
+    %% io:format("~p", [Forms]),
     {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
     Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
     {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
+    io:format("~p", [Info1]),
     Forms2 = lists:map(insert(Info1), Forms1),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
@@ -70,6 +76,15 @@ insert(#info{funs = Fs}) ->
 meta(#function{} = Func, Info) ->
     Info1 = Info#info{vars = gb_sets:new()},
     traverse(fun meta/2, Info1, Func);
+meta(?LOCAL_CALL(Ln, Name, Args) = Form, #info{meta = Ms} = Info) ->
+    Fn = {Name, length(Args)},
+    case lists:member(Fn, Ms) of
+        true ->
+            {Args1, Info1} = traverse(fun meta/2, Info, Args),
+            eval_splice(Ln, [?LOCAL_CALL(Ln, Name, Args1)], Info1);
+        false ->
+            traverse(fun meta/2, Info, Form)
+    end;
 meta(?QUOTE(_, Quote), Info) ->
     {Ast, Info1} = term_to_ast(Quote, Info),
     {erl_syntax:revert(Ast), Info1};
@@ -107,6 +122,8 @@ meta(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
       #info{types = Ts} = Info) ->
     Key = {Name, Arity},
     fetch(Ln, Key, Ts, reify_unknown_function_spec, Info);
+meta(?REIFY_ALL_TYPES(_Ln), Info) ->
+    {erl_parse:abstract(Info#info.types), Info};
 
 meta(Form, Info) ->
     traverse(fun meta/2, Info, Form).
