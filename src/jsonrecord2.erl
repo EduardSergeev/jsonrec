@@ -45,10 +45,7 @@ encode_gen(Item, {record,RecordName}, Info) ->
            end,
            lists:reverse(Mps)),
     AItem = meta:quote(Item),
-    R = Fun(AItem),
-%%    Last = meta:quote({struct, R}),
-    erl_syntax:block_expr(Fs ++ [R]).
-%%    Fs ++ [Last].
+    erl_syntax:block_expr(Fs ++ [Fun(AItem)]).
     
     
 
@@ -85,19 +82,21 @@ fetch_encode(Type, Info, Mps) ->
             gen_encode(Type, Info, Mps)
     end.
     
-gen_encode({record, [{atom, _, RecName}]}, Info, Mps) ->
-    Type = {record, RecName},
-    {Type, Fields, []} = meta:reify_type(Type, Info),
+gen_encode({record, [{atom, _, RecName}]} = Type, Info, Mps) ->
+%%    Type = {record, RecName},
+    {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     ARec = meta:quote(Rec),
     {Def, Mps1} = encode_fields(ARec, Fields, Info, Mps),
     Def1 = meta:quote(
              fun(Rec) -> {struct, Def} end),
     add_fun_def(Type, Def1, Mps1);
-gen_encode({list, [InnerType]} = Type, Info, Mps) ->
-    {Fun, Mps1} = fetch_encode(InnerType, Info, Mps),
+gen_encode({list, [{type, _, Type, Args}]}, Info, Mps) ->
+    {Fun, Mps1} = fetch_encode({Type, Args}, Info, Mps),
+    AX = meta:quote(X),
+    AFun = Fun(AX),
     Def = meta:quote(
             fun(Xs) ->
-                    [Fun(X) || X <- Xs]
+                    [AFun || X <- Xs]
             end),
     add_fun_def(Type, Def, Mps1);
 gen_encode({union, [{atom, _, undefined}, {type, _, Type, Args}]}, Info, Mps) ->
@@ -108,7 +107,12 @@ gen_encode({integer, []}, _Info, Mps) ->
     {Fun, Mps};
 gen_encode({binary, []}, _Info, Mps) ->
     Fun = fun(Item) -> Item end,
-    {Fun, Mps}.
+    {Fun, Mps};
+gen_encode({float, []}, _Info, Mps) ->
+    Fun = fun(Item) -> Item end,
+    {Fun, Mps};
+gen_encode(Type, _Info, _Mps) ->
+    meta:meta_error({unexpected_type, Type}).
 
                      
 

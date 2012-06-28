@@ -7,26 +7,30 @@
 -import(jsonrecord2, [encode_gen/3]).
 -meta([encode_gen/3]).
 
--record(rec0, {id :: integer()}).
+-record(rec0, {id :: [integer()]}).
 -record(rec1,
         {id :: integer(),
          fi = <<>> :: binary()}).
 
--record(rec2, {id :: integer(), rec0 :: #rec0{}}).
+-record(rec2,
+        {id :: integer(),
+         rec0 :: #rec0{},
+         arr = [] :: [integer()],
+         rec1 :: [#rec1{}]}).
 
 %%-record(rec1, {id = 5 :: integer()}).
 
-to_struct(#rec1{} = Rec) ->
-    jsonrecord2:encode_gen(
-      Rec,
-      #rec1{},
-      meta:reify()).
-
-to_struct2(#rec1{} = Rec) ->
+to_struct(#rec0{} = Rec) ->
     encode_gen(
       Rec,
-      {record,rec1},
+      {record,rec0},
       meta:reify()).
+
+%% to_struct2(#rec1{} = Rec) ->
+%%     encode_gen(
+%%       Rec,
+%%       {record,rec1},
+%%       meta:reify()).
 
 to_struct3(#rec2{} = Rec) ->
     encode_gen(
@@ -35,11 +39,11 @@ to_struct3(#rec2{} = Rec) ->
       meta:reify()).
 
 
-sample_encode(#rec1{} = Rec) ->
-    Fun0 = fun(Some) ->
-                   Some
-           end,
-    Fun0(Rec).
+%% sample_encode(#rec1{} = Rec) ->
+%%     Fun0 = fun(Some) ->
+%%                    Some
+%%            end,
+%%     Fun0(Rec).
                    
 
 %% encode(Rec) ->
