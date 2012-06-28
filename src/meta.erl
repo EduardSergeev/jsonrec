@@ -1,10 +1,10 @@
-
 -module(meta).
 
--export([parse_transform/2,
-         format_error/1,
+-export([reify_type/2,
+         meta_error/1]).
 
-         make_function/2]).
+-export([parse_transform/2,
+         format_error/1]).
 
 -include("meta_syntax.hrl").
 
@@ -28,20 +28,33 @@
               function = #atom{name = Name},
               args = Args}).
 -define(META_CALL(Ln, Name, Args), ?REMOTE_CALL(Ln, meta, Name, Args)).
+-define(LN(Ln), ?META_CALL(Ln, line, [])).
 -define(QUOTE(Ln, Var), ?META_CALL(Ln, quote, [Var])).
+
 -define(REIFY(Ln, Name), ?META_CALL(Ln, reify, [Name])).
 -define(REIFYTYPE(Ln, Name), ?META_CALL(Ln, reify_type, [Name])).
 -define(REIFY_ALL_TYPES(Ln), ?META_CALL(Ln, reify_types, [])).
+-define(REIFY_ALL(Ln), ?META_CALL(Ln, reify, [])).
+
 -define(SPLICE(Ln, Var), ?META_CALL(Ln, splice, Var)).
 
 
+%%%
+%%% API
+%%%
+reify_type(Name, #info{types = Ts}) ->
+    fetch(Name, Ts, reify_unknown_record_type).
+
+    
+
 parse_transform(Forms, _Options) ->
-    %% io:format("~p", [Forms]),
+    %%io:format("~p", [Forms]),
     {Forms1, Info} = traverse(fun info/2, #info{}, Forms),
     Funs = [K || {K,_V} <- dict:to_list(Info#info.funs)],
     {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
-    io:format("~p", [Info1]),
+    %% io:format("~p", [Info1]),
     Forms2 = lists:map(insert(Info1), Forms1),
+    io:format("~p", [Forms2]),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
 
@@ -76,6 +89,8 @@ insert(#info{funs = Fs}) ->
 meta(#function{} = Func, Info) ->
     Info1 = Info#info{vars = gb_sets:new()},
     traverse(fun meta/2, Info1, Func);
+meta(?LN(Ln), Info) ->
+    {{integer, Ln, Ln}, Info};
 meta(?LOCAL_CALL(Ln, Name, Args) = Form, #info{meta = Ms} = Info) ->
     Fn = {Name, length(Args)},
     case lists:member(Fn, Ms) of
@@ -124,6 +139,9 @@ meta(?REIFYTYPE(Ln, {'fun', _, {function, Name, Arity}}),
     fetch(Ln, Key, Ts, reify_unknown_function_spec, Info);
 meta(?REIFY_ALL_TYPES(_Ln), Info) ->
     {erl_parse:abstract(Info#info.types), Info};
+meta(?REIFY_ALL(_Ln), Info) ->
+    {erl_parse:abstract(Info), Info};
+
 
 meta(Form, Info) ->
     traverse(fun meta/2, Info, Form).
@@ -159,6 +177,14 @@ tuple_to_ast(T, Info) ->
     {erl_syntax:tuple(Ls1), Info1}.
 
 
+fetch(Name, Dict, Error) ->
+    case dict:find(Name, Dict) of
+        {ok, Def} ->
+            Def;
+        error ->
+            meta_error(get_line, {Error, Name})
+    end.
+
 fetch(Line, Name, Dict, Error, Info) ->
     case dict:find(Name, Dict) of
         {ok, Def} ->
@@ -167,8 +193,6 @@ fetch(Line, Name, Dict, Error, Info) ->
         error ->
             meta_error(Line, {Error, Name})
     end.
-    
-
 
 %%
 %% Various info gathering for subsequent use
@@ -219,16 +243,18 @@ eval_splice(Ln, Splice, Info) ->
         Info1 = orddict:fetch(info, Bs1),
         {erl_syntax:revert(Val), Info1}
     catch
+        error:{get_line, Error} ->
+            meta_error(Ln, Error);
         error:{unbound, Var} ->
             meta_error(Ln, splice_external_var, Var);
         error:{badarity, _} ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
-            meta_error(Ln, splice_badfun);
-        error:undef ->
-            meta_error(Ln, splice_unknown_external_function)
-%%        error:_ ->
-%%            meta_error(Ln, invalid_splice)
+            meta_error(Ln, splice_badfun)
+        %% error:undef ->
+        %%     meta_error(Ln, splice_unknown_external_function)
+       %% error:_ ->
+       %%     meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Info) ->
@@ -241,7 +267,8 @@ local_handler(Ln, Info) ->
                     F = erl_syntax:atom(Fun),
                     A = erl_syntax:application(M, F, Args),
                     Call = erl_syntax:revert(A),
-                    erl_eval:expr(Call, Bs, {eval, local_handler(Ln, Info)});      
+                    Local = {eval, local_handler(Ln, Info)},
+                    erl_eval:expr(Call, Bs, Local);      
                 error ->
                     case dict:is_key(Fn, Fs) of
                         true ->
@@ -250,7 +277,8 @@ local_handler(Ln, Info) ->
                             A = erl_syntax:application(F, Args),
                             Call = erl_syntax:revert(A),
                             Bs1 = orddict:store(info, Info1, Bs),
-                            erl_eval:expr(Call, Bs1, {eval, local_handler(Ln, Info1)});
+                            Local = {eval, local_handler(Ln, Info1)},
+                            erl_eval:expr(Call, Bs1, Local);
                         false ->
                             meta_error(Ln, {splice_unknown_function, Fn})
                     end
@@ -283,6 +311,9 @@ safe_mapfoldl(Fun, Info, Fns) ->
     lists:mapfoldl(Do, Info, Fns).
 
 
+meta_error(Error) ->
+    throw({get_line, Error}).
+
 meta_error(Line, Error) ->
     throw({Line, Error}).
 
@@ -290,6 +321,11 @@ meta_error(Line, Error, Arg) ->
     throw({Line, {Error, Arg}}).
 
 
+
+
+%%
+%% Formats error messages for compiler 
+%%
 format_error(nested_quote) ->
     "meta:quote/1 is not allowed within another meta:quote/1";
 format_error(nested_splice) ->
@@ -319,14 +355,3 @@ format_error({splice_unknown_function, {Name,Arity}}) ->
     
 format(Format, Args) ->
     io_lib:format(Format, Args).
-    
-
-%%%
-%%% Some handy functions
-%%%
-make_function(Name, Fun) ->
-    Cs = erl_syntax:fun_expr_clauses(Fun),
-    FD = erl_syntax:function(erl_syntax:atom(Name), Cs),
-    erl_syntax:revert(FD).
-
-

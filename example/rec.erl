@@ -12,12 +12,19 @@
         {id :: integer(),
          fi = <<>> :: binary()}).
 -record(rec3,
-        {id :: integer(), field1}).
+        {id = 42 :: integer(), field1}).
 
-%% -record(rec4,
-%%          {id :: integer(), field2}).
+-record(rec4,
+         {id :: integer(), field2}).
 
-%% -type rec1_4() :: #rec1{} | #rec4{}.
+-type rec1_4() :: #rec1{} | #rec4{}.
+
+-type id() :: integer().
+
+-type elem(Id) :: {Id,float(),atom()}.
+
+-type int_elem() :: elem(integer()).
+
 
 -record(rec2,
         {id,
@@ -45,6 +52,13 @@ to_struct(#rec3{} = Rec) ->
       meta:reify(#rec3{}),
       meta:reify_type(#rec3{}),
       to_struct).
+
+to_struct2(#rec1{} = Rec) ->
+    jsonrecord2:encode_gen(
+      meta:line(),
+      rec1,
+      meta:reify_types(),
+      Rec).
 
 
 encode(Rec) ->
@@ -75,3 +89,6 @@ decode(Type, Binary) ->
     from_struct(Type,
                 mochijson2:decode(Binary)).
 
+
+%% types() ->
+%%     meta:reify_types().

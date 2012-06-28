@@ -3,6 +3,12 @@
 -compile(export_all).
 -compile({parse_transform, meta}).
 
+-import(sample5,[test/1]).
+-meta([test/1]).
+
+%% -type a() :: integer().
+
+-record(rec, {id, field}).
 
 s0() ->
     1.
@@ -43,3 +49,14 @@ s6() ->
 
 s8() ->
     meta:splice(s15()).
+
+
+%% s9() ->
+%%     meta:reify_types().
+
+s10(#rec{id = Id} = Rec) ->
+    meta:splice(spl(Rec, Id)).
+    
+
+spl(A, B) ->
+    meta:quote({A,B}).
