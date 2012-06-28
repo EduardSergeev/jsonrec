@@ -54,8 +54,8 @@ parse_transform(Forms, _Options) ->
     {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
     %% io:format("~p", [Info1]),
     Forms2 = lists:map(insert(Info1), Forms1),
-    io:format("~p", [Forms2]),
-    io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
+    %% io:format("~p", [Forms2]),
+    %% io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
 
 

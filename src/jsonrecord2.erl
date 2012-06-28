@@ -46,8 +46,8 @@ encode_gen(Item, {record,RecordName}, Info) ->
            lists:reverse(Mps)),
     AItem = meta:quote(Item),
     R = Fun(AItem),
-    Last = meta:quote({struct, R}),
-    erl_syntax:block_expr(Fs ++ [Last]).
+%%    Last = meta:quote({struct, R}),
+    erl_syntax:block_expr(Fs ++ [R]).
 %%    Fs ++ [Last].
     
     
@@ -91,7 +91,7 @@ gen_encode({record, [{atom, _, RecName}]}, Info, Mps) ->
     ARec = meta:quote(Rec),
     {Def, Mps1} = encode_fields(ARec, Fields, Info, Mps),
     Def1 = meta:quote(
-             fun(Rec) -> Def end),
+             fun(Rec) -> {struct, Def} end),
     add_fun_def(Type, Def1, Mps1);
 gen_encode({list, [InnerType]} = Type, Info, Mps) ->
     {Fun, Mps1} = fetch_encode(InnerType, Info, Mps),
