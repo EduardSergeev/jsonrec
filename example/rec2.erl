@@ -26,8 +26,14 @@ to_struct(#rec0{} = Rec) ->
       meta:reify_type(#rec0{}),
       meta:reify()).
 
-to_struct3(#rec2{} = Rec) ->
+to_struct1(#rec1{} = Rec) ->
     encode_gen(
       meta:quote(Rec),
+      meta:reify_type(#rec1{}),
+      meta:reify()).
+
+to_struct3(#rec2{} = Reccc) ->
+    encode_gen(
+      meta:quote(Reccc),
       meta:reify_type(#rec2{}),
       meta:reify()).

@@ -22,51 +22,63 @@
          {type, _Ln3, Type, Args}}).
 
 
-encode_gen(Item, {{record,RecordName},_,[]}, Info) ->
+%% encode_gen(Item, {{record,RecordName},_,[]}, Info) ->
+%%     Type = {record, [{atom,0,RecordName}]},
+%%     {Fun,Mps} = gen_encode(Type, Info, []),
+%%     [{_,{_,MDef}}|Mps1] = Mps,
+%%     [Cl] = erl_syntax:fun_expr_clauses(MDef),
+%%     Body = erl_syntax:clause_body(Cl),
+%%     Fs = [meta:quote(meta:splice(FN) = meta:splice(Def))
+%%           || {_,{FN,Def}} <- lists:reverse(Mps1)],
+%%     erl_syntax:block_expr(Fs ++ Body).
+
+encode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
     Type = {record, [{atom,0,RecordName}]},
-    {Fun,Mps} = gen_encode(Type, Info, []),
+    {Fun,Mps} = gen_encode(QRec, Type, Info, []),
     Fs = [meta:quote(meta:splice(FN) = meta:splice(Def))
           || {_,{FN,Def}} <- lists:reverse(Mps)],
-    erl_syntax:block_expr(Fs ++ [Fun(Item)]).
+    erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
     
 
 %%
 %% Encoding
 %%
-fetch_encode(Type, Info, Mps) ->
+fetch_encode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps) of
         {Type, {Fun,_Def}} ->
             {Fun, Mps};
         none ->
-            gen_encode(Type, Info, Mps)
+            gen_encode(QRec, Type, Info, Mps)
     end.
     
-gen_encode({record, [{atom, _, RecName}]} = Type, Info, Mps) ->
+gen_encode(QRec, {record, [{atom, _, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
-    {Def, Mps1} = encode_fields(meta:quote(Rec), Fields, Info, Mps),
+    QRec1 = gen_var(QRec),
+    {Def, Mps1} = encode_fields(QRec1, Fields, Info, Mps),
     Def1 = meta:quote(
-             fun(Rec) ->
+             fun(meta:splice(QRec1)) ->
                      {struct, meta:splice(Def)}
              end),
     add_fun_def(Type, Def1, Mps1);
-gen_encode({list, [{type, _, Type, Args}]}, Info, Mps) ->
-    {Fun, Mps1} = fetch_encode({Type, Args}, Info, Mps),
+gen_encode(QRec, {list, [{type, _, Type, Args}]}, Info, Mps) ->
+    {Fun, Mps1} = fetch_encode(QRec, {Type, Args}, Info, Mps),
+    QRec1 = gen_var(QRec),
     Def = meta:quote(
-            fun(Xs) ->
-                    [meta:splice(Fun(meta:quote(X))) || X <- Xs]
+            fun(meta:splice(QRec1)) ->
+                    [meta:splice(Fun(meta:quote(X))) || X <- meta:splice(QRec1)]
             end),
     add_fun_def(Type, Def, Mps1);
-gen_encode({union, [{atom, _, undefined}, {type, _, Type, Args}]}, Info, Mps) ->
-    fetch_encode({Type, Args}, Info, Mps);
+gen_encode(QRec, {union, [{atom, _, undefined}, {type, _, Type, Args}]}, Info, Mps) ->
+    fetch_encode(QRec, {Type, Args}, Info, Mps);
 
-gen_encode({integer, []}, _Info, Mps) ->
+gen_encode(_, {integer, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
-gen_encode({binary, []}, _Info, Mps) ->
+gen_encode(_, {binary, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
-gen_encode({float, []}, _Info, Mps) ->
+gen_encode(_, {float, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
 
-gen_encode(Type, _Info, _Mps) ->
+gen_encode(_, Type, _Info, _Mps) ->
     meta:meta_error({unexpected_type, Type}).
 
 encode_fields(QRec, Fields, Info, Mps) ->
@@ -90,7 +102,7 @@ encode_field(QRec, Ind, ?TYPED_FIELD(Fn, T, Args, _Def), Info, Mps) ->
     encode_typed(QRec, Ind, Fn, {T,Args}, Info, Mps).
 
 encode_typed(QRec, Ind, Fn, Type, Info, Mps) ->
-    {Fun, Mps1} = fetch_encode(Type, Info, Mps),
+    {Fun, Mps1} = fetch_encode(QRec, Type, Info, Mps),
     AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
     QInd = erl_parse:abstract(Ind),
     AV = meta:quote(V),
@@ -129,3 +141,9 @@ add_fun_def(Type, Def, Mps) ->
                   meta:quote((meta:splice(AFun))(meta:splice(Item)))
           end,
     {Fun, [{Type,{AFun,Def}}|Mps]}.
+
+gen_var(QRec) ->
+    Vn = erl_syntax:variable_name(QRec),
+    SVn = atom_to_list(Vn),
+    SVn1 = SVn ++ "1",
+    erl_syntax:revert(erl_syntax:variable(SVn1)).
