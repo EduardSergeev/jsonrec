@@ -84,9 +84,6 @@ insert(#info{funs = Fs}) ->
             Form
     end.
 
-%% meta(#function{} = Func, Info) ->
-%% %%    Info1 = Info#info{vars = gb_sets:new()},
-%%     traverse(fun meta/2, Info, Func);
 meta(?LN(Ln), Info) ->
     {{integer, Ln, Ln}, Info};
 meta(?LOCAL_CALL(Ln, Name, Args) = Form, #info{meta = Ms} = Info) ->
@@ -219,9 +216,6 @@ info(Form, Info) ->
     traverse(fun info/2, Info, Form).
     
 eval_splice(Ln, Splice, Info) ->
-    %% Vs = [{V, #var{line = Ln, name = V}} ||
-    %%          V <- gb_sets:to_list(Info#info.vars)],
-    %% Bs = orddict:from_list([{info, Info}|Vs]),
     Bs = [{info, Info}],
     Local = {eval, local_handler(Ln, Info)},
     try
