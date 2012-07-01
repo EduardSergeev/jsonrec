@@ -221,7 +221,9 @@ eval_splice(Ln, Splice, Info) ->
     try
         {value, Val, Bs1} = erl_eval:exprs(Splice, Bs, Local),
         Info1 = orddict:fetch(info, Bs1),
-        {erl_syntax:revert(Val), Info1}
+        Expr = erl_syntax:revert(Val),
+        erl_lint:exprs([Expr], []),
+        {Expr, Info1}
     catch
         error:{get_line, Error} ->
             meta_error(Ln, Error);
@@ -234,9 +236,9 @@ eval_splice(Ln, Splice, Info) ->
         error:{badarg, Arg} ->
             meta_error(Ln, splice_badarg, Arg);
         error:undef ->
-            meta_error(Ln, splice_unknown_external_function)
-       %% error:_ ->
-       %%     meta_error(Ln, invalid_splice)
+            meta_error(Ln, splice_unknown_external_function);
+        error:_ ->
+            meta_error(Ln, invalid_splice)
     end.
 
 local_handler(Ln, Info) ->
@@ -266,7 +268,6 @@ local_handler(Ln, Info) ->
                     end
             end
     end.
-
 
 %%
 %% Recursive traversal a-la mapfoldl

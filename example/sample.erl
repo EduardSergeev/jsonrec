@@ -49,5 +49,5 @@ sample_splice() ->
 
 %%-splice(sample_splice).
 
-%% sample_res() ->
-%%     sample_expr({integr,5,23}).
+sample_res() ->
+    sample_expr({integer,5,23}).
