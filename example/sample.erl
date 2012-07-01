@@ -7,20 +7,20 @@
 -compile(export_all).
 
 sample_expr() ->
-    meta:quote(2+20).
+    meta:quote(1+20).
 
 sample_fun() ->
     meta:quote(fun(A) -> A+1 end). 
 	     
 
 sample_expr(Arg1) ->
-    meta:quote(Arg1+42).
+    meta:quote(meta:splice(Arg1) + 42).
 
 test() ->
     meta:splice(sample2:expr()).
 
 test_loc() ->
-    meta:splice(sample_expr()).
+    sample_expr().
 
 test_fun2() ->
     meta:splice(sample2:expr(meta:quote(2))).
@@ -49,5 +49,5 @@ sample_splice() ->
 
 %%-splice(sample_splice).
 
-sample_res() ->
-    sample_expr({integr,5,23}).
+%% sample_res() ->
+%%     sample_expr({integr,5,23}).

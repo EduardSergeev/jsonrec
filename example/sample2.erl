@@ -17,7 +17,7 @@
 
 
 do(Expr) ->
-    meta:quote(Expr+1).
+    meta:quote(meta:splice(Expr)+1).
     
 
 e1() ->
@@ -49,10 +49,10 @@ expr11() ->
     expr1().
 
 expr(A) ->
-    meta:quote(A+1).
+    meta:quote(meta:splice(A)+1).
 
 expr(A,B) ->
-    meta:quote(A+B).
+    meta:quote(meta:splice(A)+meta:splice(B)).
 
 t1() ->
     A = meta:quote(2+1),
@@ -66,7 +66,7 @@ t11() ->
 
 t2() ->
     fun(A) ->
-	    meta:quote(A+1)
+	    meta:quote(meta:splice(A)+1)
     end.
 
 t3() ->
@@ -79,7 +79,7 @@ f1(A) ->
     A+1.
 
 call(F, A) ->
-    meta:quote(F(A)).
+    meta:quote((meta:splice(F))(meta:splice(A))).
 
 test(Fu) ->
     F = fun(E, A) ->
@@ -90,6 +90,8 @@ test(Fu) ->
 ts() ->
     meta:splice(test(meta:quote(f1))).
 
+fu2() ->
+    (meta:splice(meta:quote(fun f1/1)))(1).
 
 sa() ->
     meta:quote(f1(1)).

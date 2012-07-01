@@ -13,9 +13,7 @@
          imports = dict:new(),
          types = dict:new(),
          records = dict:new(),
-         funs = dict:new(),
-         vars}).
-
+         funs = dict:new()}).
 
 -define(REMOTE_CALL(Ln, Mod, Name, Args),
         #call{line = Ln,
@@ -54,7 +52,7 @@ parse_transform(Forms, _Options) ->
     {_, Info1} = safe_mapfoldl(fun process_fun/2, Info, Funs),
     %% io:format("~p", [Info1]),
     Forms2 = lists:map(insert(Info1), Forms1),
-    io:format("~p", [Forms2]),
+    %%io:format("~p", [Forms2]),
     io:format("~s~n", [erl_prettypr:format(erl_syntax:form_list(Forms2))]),
     Forms2.
 
@@ -86,9 +84,9 @@ insert(#info{funs = Fs}) ->
             Form
     end.
 
-meta(#function{} = Func, Info) ->
-    Info1 = Info#info{vars = gb_sets:new()},
-    traverse(fun meta/2, Info1, Func);
+%% meta(#function{} = Func, Info) ->
+%% %%    Info1 = Info#info{vars = gb_sets:new()},
+%%     traverse(fun meta/2, Info, Func);
 meta(?LN(Ln), Info) ->
     {{integer, Ln, Ln}, Info};
 meta(?LOCAL_CALL(Ln, Name, Args) = Form, #info{meta = Ms} = Info) ->
@@ -103,9 +101,6 @@ meta(?LOCAL_CALL(Ln, Name, Args) = Form, #info{meta = Ms} = Info) ->
 meta(?QUOTE(_, Quote), Info) ->
     {Ast, Info1} = term_to_ast(Quote, Info),
     {erl_syntax:revert(Ast), Info1};
-meta(#var{name = Name} = V, #info{vars = Vs} = Info) ->
-    Info1 = Info#info{vars = gb_sets:add(Name, Vs)},
-    {V, Info1};
 meta(#attribute{} = Form, Info) ->
     {Form, Info};
 meta(?SPLICE(Ln, Splice), Info) ->
@@ -151,30 +146,20 @@ meta(Form, Info) ->
 
 term_to_ast(?QUOTE(Ln, _), _) ->
     meta_error(Ln, nested_quote);
-term_to_ast(?SPLICE(_, _) = Form, Info) ->
-    {Form1, Info1} = meta(Form, Info),
-    term_to_ast(Form1, Info1);
+term_to_ast(?SPLICE(_Ln, [Splice]), Info) ->
+    traverse(fun meta/2, Info, Splice);
 term_to_ast(Ls, Info) when is_list(Ls) ->
     {Ls1, _} = traverse(fun term_to_ast/2, Info, Ls),
     {erl_syntax:list(Ls1), Info};
-term_to_ast(#var{name = Name} = A, #info{vars = Vs} = Info) ->
-    case gb_sets:is_member(Name, Vs) of
-        true ->
-            {A, Info};
-        false ->
-            tuple_to_ast(A, Info)
-    end;
 term_to_ast(T, Info) when is_tuple(T) ->
-    tuple_to_ast(T, Info);
+    %% tuple_to_ast(T, Info);
+    Ls = tuple_to_list(T),
+    {Ls1, Info1} = traverse(fun term_to_ast/2, Info, Ls),
+    {erl_syntax:tuple(Ls1), Info1};
 term_to_ast(I, Info) when is_integer(I) ->
     {erl_syntax:integer(I), Info};
 term_to_ast(A, Info) when is_atom(A) ->
     {erl_syntax:atom(A), Info}.    
-    
-tuple_to_ast(T, Info) ->
-    Ls = tuple_to_list(T),
-    {Ls1, Info1} = traverse(fun term_to_ast/2, Info, Ls),
-    {erl_syntax:tuple(Ls1), Info1}.
 
 
 fetch(Name, Dict, Error) ->
@@ -234,9 +219,10 @@ info(Form, Info) ->
     traverse(fun info/2, Info, Form).
     
 eval_splice(Ln, Splice, Info) ->
-    Vs = [{V, #var{line = Ln, name = V}} ||
-             V <- gb_sets:to_list(Info#info.vars)],
-    Bs = orddict:from_list([{info, Info}|Vs]),
+    %% Vs = [{V, #var{line = Ln, name = V}} ||
+    %%          V <- gb_sets:to_list(Info#info.vars)],
+    %% Bs = orddict:from_list([{info, Info}|Vs]),
+    Bs = [{info, Info}],
     Local = {eval, local_handler(Ln, Info)},
     try
         {value, Val, Bs1} = erl_eval:exprs(Splice, Bs, Local),
@@ -250,9 +236,11 @@ eval_splice(Ln, Splice, Info) ->
         error:{badarity, _} ->
             meta_error(Ln, splice_badarity);
         error:{badfun, _} ->
-            meta_error(Ln, splice_badfun)
-        %% error:undef ->
-        %%     meta_error(Ln, splice_unknown_external_function)
+            meta_error(Ln, splice_badfun);
+        error:{badarg, Arg} ->
+            meta_error(Ln, splice_badarg, Arg);
+        error:undef ->
+            meta_error(Ln, splice_unknown_external_function)
        %% error:_ ->
        %%     meta_error(Ln, invalid_splice)
     end.
@@ -348,6 +336,8 @@ format_error(splice_badarity) ->
     "'badarity' call in 'meta:splice'";
 format_error(splice_badfun) ->
     "'badfun' call in 'meta:splice'";
+format_error({splice_badarg, Arg}) ->
+    format("'badarg' in 'meta:splice': ~p", [Arg]);
 format_error(splice_unknown_external_function) ->
     "Unknown remote function call in 'splice'";
 format_error({splice_unknown_function, {Name,Arity}}) ->

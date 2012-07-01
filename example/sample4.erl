@@ -20,7 +20,7 @@ s15() ->
     s1().
 
 s2(E) ->
-   meta:quote(E+1).
+   meta:quote(meta:splice(E)+1).
 
 s3() ->
    meta:splice(s1()).
@@ -29,7 +29,7 @@ s35() ->
    s2(meta:quote(1)).
 
 s4(A) ->
-   meta:splice(s2(A)).
+   meta:splice(s2(meta:quote(A))).
 
 s45() ->
     meta:splice(erl_parse:abstract(f(23))).
@@ -55,8 +55,8 @@ s8() ->
 %%     meta:reify_types().
 
 s10(#rec{id = Id} = Rec) ->
-    meta:splice(spl(Rec, Id)).
+    meta:splice(spl(meta:quote(Rec), meta:quote(Id))).
     
 
 spl(A, B) ->
-    meta:quote({A,B}).
+    meta:quote({meta:splice(A),meta:splice(B)}).

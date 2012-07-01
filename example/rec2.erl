@@ -22,36 +22,12 @@
 
 to_struct(#rec0{} = Rec) ->
     encode_gen(
-      Rec,
-      {record,rec0},
+      meta:quote(Rec),
+      meta:reify_type(#rec0{}),
       meta:reify()).
-
-%% to_struct2(#rec1{} = Rec) ->
-%%     encode_gen(
-%%       Rec,
-%%       {record,rec1},
-%%       meta:reify()).
 
 to_struct3(#rec2{} = Rec) ->
     encode_gen(
-      Rec,
-      {record,rec2},
+      meta:quote(Rec),
+      meta:reify_type(#rec2{}),
       meta:reify()).
-
-
-%% sample_encode(#rec1{} = Rec) ->
-%%     Fun0 = fun(Some) ->
-%%                    Some
-%%            end,
-%%     Fun0(Rec).
-                   
-
-%% encode(Rec) ->
-%%     mochijson2:encode(to_struct(Rec)).
-
-
-%% t1() ->
-%%     meta:reify_type(#rec1{}).
-
-%% t2() ->
-%%     meta:reify().
