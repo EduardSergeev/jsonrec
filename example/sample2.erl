@@ -26,11 +26,14 @@ e1() ->
 e2() ->
     meta:quote(A+1).
 
-e3(A) ->
-    A + meta:splice((e2())).
+%% e3(A) ->
+%%     A + meta:splice(id(e2())).
 
 e4() ->
     meta:quote(e1()).
+
+id(X) ->
+    X.
 
 s1() ->
     {ap, 1,2}.
@@ -62,7 +65,7 @@ t1() ->
 %%    meta:splice(expr1(1)).
 
 t11() ->
-   meta:splice(t1()).
+   meta:splice(id(t1())).
 
 t2() ->
     fun(A) ->

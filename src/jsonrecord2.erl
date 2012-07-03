@@ -1,7 +1,7 @@
 -module(jsonrecord2).
 
--include("meta.hrl").
--include("meta_syntax.hrl").
+-include_lib("meta/include/meta.hrl").
+-include_lib("meta/include/meta_syntax.hrl").
 
 -export([encode_gen/3]).
 
@@ -21,16 +21,6 @@
          ?FIELD(Name, Default),
          {type, _Ln3, Type, Args}}).
 
-
-%% encode_gen(Item, {{record,RecordName},_,[]}, Info) ->
-%%     Type = {record, [{atom,0,RecordName}]},
-%%     {Fun,Mps} = gen_encode(Type, Info, []),
-%%     [{_,{_,MDef}}|Mps1] = Mps,
-%%     [Cl] = erl_syntax:fun_expr_clauses(MDef),
-%%     Body = erl_syntax:clause_body(Cl),
-%%     Fs = [meta:quote(meta:splice(FN) = meta:splice(Def))
-%%           || {_,{FN,Def}} <- lists:reverse(Mps1)],
-%%     erl_syntax:block_expr(Fs ++ Body).
 
 encode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
     Type = {record, [{atom,0,RecordName}]},
