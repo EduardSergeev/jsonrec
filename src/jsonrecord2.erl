@@ -109,18 +109,15 @@ encode_typed(QRec, Ind, Fn, Type, Info, Mps) ->
     {Fun, Mps1} = fetch_encode(QRec, Type, Info, Mps),
     AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
     QInd = erl_parse:abstract(Ind),
-    AV = meta:quote(V),
-    Elem = Fun(AV),
-    Def = meta:quote(
-            fun(Acc) ->
-                    V = element(?s(QInd), ?s(QRec)),
-                    if 
-                        V =:= undefined ->
-                            Acc;
-                        true ->
-                            [{?s(AFN), ?s(Elem)}|Acc]
-                    end
-            end),
+    Def = ?q(fun(Acc) ->
+                     V = element(?s(QInd), ?s(QRec)),
+                     if 
+                         V =:= undefined ->
+                             Acc;
+                         true ->
+                             [{?s(AFN), ?s(Fun(?q(V)))} | Acc]
+                     end
+             end),
     {Def, Mps1}.
 
 
@@ -183,10 +180,8 @@ gen_field_to_integer(QStr, Types, Info, Mps) ->
                   fun({N,T},M) ->
                           decode_field(QStr, N,T, Info, M)
                   end, Mps, NTs),
-    Last = erl_syntax:clause(
-             [erl_syntax:underscore(),erl_syntax:underscore()],
-             none,
-             [meta:quote(undefined)]),
+    [Last] = erl_syntax:fun_expr_clauses(
+               ?q(fun(_,_) -> undefined end)),
     Es1 = Es ++ [Last],
     Ast = erl_syntax:fun_expr(Es1),
     {erl_syntax:revert(Ast), Mps1}.
@@ -196,7 +191,7 @@ with_defaults(RecName, Types, Tail) ->
     Ds = [decode_default(N, QDef)
           || {N, ?TYPED_FIELD(_, _, _, QDef)} <- NTs],
     QName = erl_parse:abstract(RecName),
-    Tag = meta:quote({1,?s(QName)}),
+    Tag = ?q({1,?s(QName)}),
     Ast = erl_syntax:list([Tag|Ds], Tail),
     erl_syntax:revert(Ast). 
 
@@ -216,11 +211,13 @@ decode_field(QStr, Ind, ?TYPED_FIELD(Fn, T, Args, _Def), Info, Mps) ->
 
 decode_record(QStr, Index, Fn, Type, Info, Mps) ->
     {Fun, Mps1} = fetch_decode(QStr, Type, Info, Mps),
-    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
-    Var = meta:quote(V1),
-    AInd = erl_parse:abstract(Index),
-    Res = meta:quote({?s(AInd),?s(Fun(Var))}),
-    {erl_syntax:clause([AFN, Var], none, [Res]), Mps1}.
+    QFn = erl_parse:abstract(atom_to_msbinary(Fn)),
+    QInd = erl_parse:abstract(Index),
+    [Def] = erl_syntax:fun_expr_clauses(
+              ?q(fun(?s(QFn), V1) ->
+                         {?s(QInd), ?s(Fun(?q(V1)))}
+                 end)),
+    {Def, Mps1}. 
 
 
 %%
@@ -239,11 +236,11 @@ atom_to_msbinary(Atom) ->
 add_fun_def(Type, Def, Mps) ->
     Ind = length(Mps),
     VN = list_to_atom("Fun" ++ integer_to_list(Ind)),
-    AFun = erl_syntax:revert(erl_syntax:variable(VN)),
+    QFun = erl_syntax:revert(erl_syntax:variable(VN)),
     Fun = fun(Item) ->
-                  meta:quote((meta:splice(AFun))(meta:splice(Item)))
+                  ?q(?s(QFun)(?s(Item)))
           end,
-    {Fun, [{Type,{AFun,Def}}|Mps]}.
+    {Fun, [{Type,{QFun,Def}}|Mps]}.
 
 gen_var(QRec) ->
     Vn = erl_syntax:variable_name(QRec),
