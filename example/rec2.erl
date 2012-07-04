@@ -4,12 +4,12 @@
 
 -compile(export_all).
 
--import(jsonrecord2, [encode_gen/3]).
+-import(jsonrecord2, [encode_gen/3, decode_gen/3]).
 -meta([encode_gen/3]).
 
 -record(rec0,
-        {id :: [integer()],
-         something :: boolean()}).
+        {id :: integer()}).
+
 -record(rec1,
         {id :: integer(),
          fi = <<>> :: binary()}).
@@ -31,8 +31,15 @@ to_struct(#rec1{} = Rec) ->
       meta:quote(Rec),
       meta:reify_type(#rec1{}),
       meta:reify());
-to_struct(#rec2{} = Reccc) ->
+to_struct(#rec2{} = Rec) ->
     encode_gen(
-      meta:quote(Reccc),
+      meta:quote(Rec),
       meta:reify_type(#rec2{}),
       meta:reify()).
+
+from_struct(Struct) ->
+    ?s(decode_gen(
+         ?q(Struct),
+         meta:reify_type(#rec2{}),
+         meta:reify())).
+    
