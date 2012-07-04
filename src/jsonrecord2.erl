@@ -5,6 +5,8 @@
 
 -export([encode_gen/3]).
 
+-export([format_error/1]).
+
 -define(FIELD(Name),
         {record_field, _Ln1,
          {atom, _Ln2, Name}}).
@@ -67,9 +69,13 @@ gen_encode(_, {binary, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
 gen_encode(_, {float, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
+gen_encode(_, {boolean, []}, _Info, Mps) ->
+    {fun(Item) -> Item end, Mps};
+gen_encode(_, undefined, _Info, Mps) ->
+    {fun(Item) -> Item end, Mps};
 
 gen_encode(_, Type, _Info, _Mps) ->
-    meta:meta_error({unexpected_type, Type}).
+    meta:error(?MODULE, unexpected_type, Type).
 
 encode_fields(QRec, Fields, Info, Mps) ->
     NFs = lists:zip(lists:seq(2, length(Fields)+1), Fields),
@@ -111,6 +117,11 @@ encode_typed(QRec, Ind, Fn, Type, Info, Mps) ->
 
 
 %%
+%% Decoding
+%%
+%%gen_decode()
+
+%%
 %% Utils
 %%
 atom_to_mslist(Atom) when is_atom(Atom) ->
@@ -137,3 +148,13 @@ gen_var(QRec) ->
     SVn = atom_to_list(Vn),
     SVn1 = SVn ++ "1",
     erl_syntax:revert(erl_syntax:variable(SVn1)).
+
+
+%%
+%% Formats error messages for compiler 
+%%
+format_error({unexpected_type, Type}) ->
+    format("JSON generator doesn't know how to handle type ~p", [Type]).
+
+format(Format, Args) ->
+    io_lib:format(Format, Args).

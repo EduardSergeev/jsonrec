@@ -1,13 +1,15 @@
 -module(rec2).
 
--include("../src/meta.hrl").
+-include_lib("meta/include/meta.hrl").
 
 -compile(export_all).
 
 -import(jsonrecord2, [encode_gen/3]).
 -meta([encode_gen/3]).
 
--record(rec0, {id :: [integer()]}).
+-record(rec0,
+        {id :: [integer()],
+         something :: boolean()}).
 -record(rec1,
         {id :: integer(),
          fi = <<>> :: binary()}).
@@ -18,21 +20,18 @@
          arr = [] :: [integer()],
          rec1 :: [#rec1{}]}).
 
-%%-record(rec1, {id = 5 :: integer()}).
 
 to_struct(#rec0{} = Rec) ->
     encode_gen(
       meta:quote(Rec),
       meta:reify_type(#rec0{}),
-      meta:reify()).
-
-to_struct1(#rec1{} = Rec) ->
+      meta:reify());
+to_struct(#rec1{} = Rec) ->
     encode_gen(
       meta:quote(Rec),
       meta:reify_type(#rec1{}),
-      meta:reify()).
-
-to_struct3(#rec2{} = Reccc) ->
+      meta:reify());
+to_struct(#rec2{} = Reccc) ->
     encode_gen(
       meta:quote(Reccc),
       meta:reify_type(#rec2{}),
