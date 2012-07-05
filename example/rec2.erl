@@ -7,18 +7,24 @@
 -import(jsonrecord2, [encode_gen/3, decode_gen/3]).
 -meta([encode_gen/3]).
 
+
+-type my_integer() :: integer().
+
 -record(rec0,
-        {id :: integer()}).
+        {id :: my_integer(),
+         some_field = true :: boolean()}).
 
 -record(rec1,
         {id :: integer(),
          fi = <<>> :: binary()}).
 
+-type my_rec() :: #rec1{}.
+
 -record(rec2,
         {id :: integer(),
          rec0 :: #rec0{},
-         arr = [] :: [integer()],
-         rec1 :: [#rec1{}]}).
+         arr = [] :: [my_integer()],
+         rec1 = [#rec1{}]:: [my_rec()]}).
 
 
 to_struct(#rec0{} = Rec) ->
@@ -42,4 +48,3 @@ from_struct(Struct) ->
          ?q(Struct),
          meta:reify_type(#rec2{}),
          meta:reify())).
-    

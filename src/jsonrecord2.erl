@@ -7,6 +7,8 @@
 
 -export([format_error/1]).
 
+-define(TYPE(Type, Args),
+        {type, _Ln3, Type, Args}).
 -define(FIELD(Name),
         {record_field, _Ln1,
          {atom, _Ln2, Name}}).
@@ -17,11 +19,11 @@
 -define(TYPED_FIELD(Name, Type, Args),
         {typed_record_field,
          ?FIELD(Name),
-         {type, _Ln3, Type, Args}}).
+         ?TYPE(Type, Args)}).
 -define(TYPED_FIELD(Name, Type, Args, Default),
         {typed_record_field,
          ?FIELD(Name, Default),
-         {type, _Ln3, Type, Args}}).
+         ?TYPE(Type, Args)}).
 
 
 encode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
@@ -79,10 +81,14 @@ gen_encode(_, {float, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
 gen_encode(_, {boolean, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
-gen_encode(_, undefined, _Info, Mps) ->
+gen_encode(_, {any, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
 
-gen_encode(_, Type, _Info, _Mps) ->
+gen_encode(QRec, {Type,[]}, Info, Mps) ->
+    {Type, ?TYPE(Type1, Args), []} =  meta:reify_type(Type, Info),
+    fetch_encode(QRec, {Type1, Args}, Info, Mps);
+            
+gen_encode(_QRec, Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type, Type).
 
 encode_fields(QRec, Fields, Info, Mps) ->
@@ -97,9 +103,9 @@ encode_fields(QRec, Fields, Info, Mps) ->
     {lists:foldr(Cons, meta:quote([]), Es), Mps1}.
 
 encode_field(QRec, Ind, ?FIELD(Fn), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, undefined, Info, Mps);
+    encode_typed(QRec, Ind, Fn, {any, []}, Info, Mps);
 encode_field(QRec, Ind, ?FIELD(Fn, _Def), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, undefined, Info, Mps);
+    encode_typed(QRec, Ind, Fn, {any, []}, Info, Mps);
 encode_field(QRec, Ind, ?TYPED_FIELD(Fn, T, Args), Info, Mps) ->
     encode_typed(QRec, Ind, Fn, {T,Args}, Info, Mps);
 encode_field(QRec, Ind, ?TYPED_FIELD(Fn, T, Args, _Def), Info, Mps) ->
@@ -166,8 +172,12 @@ gen_decode(_, {float, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
 gen_decode(_, {boolean, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
-gen_decode(_, undefined, _Info, Mps) ->
+gen_decode(_, {any, []}, _Info, Mps) ->
     {fun(Item) -> Item end, Mps};
+
+gen_decode(QStr, {Type,[]}, Info, Mps) ->
+    {Type, ?TYPE(Type1, Args), []} =  meta:reify_type(Type, Info),
+    fetch_decode(QStr, {Type1, Args}, Info, Mps);
 
 gen_decode(_, Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type, Type).
