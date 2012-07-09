@@ -39,7 +39,8 @@ decode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
     Type = {record, [{atom,RecordName}]},
     {Fun,Mps} = gen_decode(QRec, Type, Info, []),
     Fs = [?q(?s(FN) = ?s(Def))
-          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps)],
+          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps),
+             Def /= none],
     erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
 
 
@@ -56,7 +57,7 @@ fetch_encode(QRec, Type, Info, Mps) ->
             gen_encode(QRec, Type, Info, Mps)
     end.
     
-gen_encode(QRec, {record, [{atom, RecName} = _Rec]} = Type, Info, Mps) ->
+gen_encode(QRec, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     QRec1 = gen_var(QRec),
     {Def, Mps1} = encode_fields(QRec1, Fields, Info, Mps),
@@ -95,19 +96,16 @@ gen_encode(_, {integer, []} = Type, _Info, Mps) ->
                    ?q(is_integer(?s(Item)))
            end,
     encode_standard(Type, GFun, Mps);
-
 gen_encode(_, {binary, []} = Type, _Info, Mps) ->
     GFun = fun(Item) ->
                    ?q(is_binary(?s(Item)))
            end,
     encode_standard(Type, GFun, Mps);
-
 gen_encode(_, {float, []} = Type, _Info, Mps) ->
     GFun = fun(Item) ->
                    ?q(is_float(?s(Item)))
            end,
     encode_standard(Type, GFun, Mps);
-
 gen_encode(_, {boolean, []} = Type, _Info, Mps) ->
     GFun = fun(Item) ->
                    ?q(is_boolean(?s(Item)))
@@ -129,7 +127,7 @@ gen_encode(QRec, {UserType,[]} = Type, Info, Mps) ->
     add_fun_def(Type, none, Mps1, GFun, VFun);
             
 gen_encode(_QRec, Type, _Info, _Mps) ->
-    meta:error(?MODULE, unexpected_type, Type).
+    meta:error(?MODULE, unexpected_type_encode, Type).
 
 encode_fields(QRec, Fields, Info, Mps) ->
     NFs = lists:zip(lists:seq(2, length(Fields)+1), Fields),
@@ -203,13 +201,13 @@ encode_standard(Type, GFun, Mps) ->
 %%
 fetch_decode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps) of
-        {Type, {Fun, _GFun, _Def}} ->
+        {Type, {Fun, _Fn, _GFun, _Def}} ->
             {Fun, Mps};
         none ->
             gen_decode(QRec, Type, Info, Mps)
     end.
 
-gen_decode(QStr, {record, [{atom, _, RecName}]} = Type, Info, Mps) ->
+gen_decode(QStr, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {FTI, Mps1} = gen_field_to_integer(QStr, Fields, Info, Mps),
     Size = erl_parse:abstract(length(Fields) + 1),
@@ -224,34 +222,69 @@ gen_decode(QStr, {record, [{atom, _, RecName}]} = Type, Info, Mps) ->
              end),
     add_fun_def(Type, Def, Mps1);    
 
-gen_decode(QStr, {list, [{type, _, Type, Args}]}, Info, Mps) ->
-    {Fun, Mps1} = fetch_decode(QStr, {Type, Args}, Info, Mps),
+gen_decode(QStr, {list, [InnerType]} = Type, Info, Mps) ->
+    {Fun, Mps1} = fetch_decode(QStr, type_ref(InnerType), Info, Mps),
     QXs = gen_var(QStr),
     Def = ?q(fun(?s(QXs)) ->
                      [?s(Fun(?q(X))) || X <- ?s(QXs)]
              end),
     add_fun_def(Type, Def, Mps1);
 
-gen_decode(QStr, {union, [{atom, _, undefined}, {type, _, Type, Args}]}, Info, Mps) ->
-    fetch_decode(QStr, {Type, Args}, Info, Mps);
+%% gen_decode(QStr, {union, [{atom, undefined}, Type]}, Info, Mps) ->
+%%     fetch_decode(QStr, type_ref(Type), Info, Mps);
 
-gen_decode(_, {integer, []}, _Info, Mps) ->
-    {fun(Item) -> Item end, Mps};
-gen_decode(_, {binary, []}, _Info, Mps) ->
-    {fun(Item) -> Item end, Mps};
-gen_decode(_, {float, []}, _Info, Mps) ->
-    {fun(Item) -> Item end, Mps};
-gen_decode(_, {boolean, []}, _Info, Mps) ->
-    {fun(Item) -> Item end, Mps};
-gen_decode(_, {any, []}, _Info, Mps) ->
-    {fun(Item) -> Item end, Mps};
+gen_decode(QRec, {union, Types} = Type, Info, Mps) ->
+    {Def,Mps1} = decode_union(QRec, Types, Info, Mps),
+    add_fun_def(Type, Def, Mps1);
 
-gen_decode(QStr, {Type,[]}, Info, Mps) ->
-    {Type, ?TYPE(Type1, Args), []} =  meta:reify_type(Type, Info),
-    fetch_decode(QStr, {Type1, Args}, Info, Mps);
+gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
+    VFun = fun(_) ->
+                   fun(_Item) ->
+                           erl_parse:abstract(Atom)
+                   end
+           end,
+    GFun = fun(Item) ->
+                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun);
 
+gen_decode(_, {integer, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_integer(?s(Item)))
+           end,
+    decode_standard(Type, GFun, Mps);
+gen_decode(_, {binary, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_binary(?s(Item)))
+           end,
+    decode_standard(Type, GFun, Mps);
+gen_decode(_, {float, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_float(?s(Item)))
+           end,
+    decode_standard(Type, GFun, Mps);
+gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_boolean(?s(Item)))
+           end,
+    decode_standard(Type, GFun, Mps);
+
+gen_decode(_, {any, []} = Type, _Info, Mps) ->
+    GFun = fun(_Item) ->
+                   ?q(true)
+           end,
+    decode_standard(Type, GFun, Mps);
+
+gen_decode(QStr, {UserType,[]} = Type, Info, Mps) ->
+    {_, Type1, []} =  meta:reify_type(UserType, Info),
+    TR = type_ref(Type1),
+    {Fun, Mps1} = fetch_decode(QStr, TR, Info, Mps),
+    VFun = fun(_) -> Fun end,
+    GFun = get_guard(TR, Mps1),
+    add_fun_def(Type, none, Mps1, GFun, VFun);
+    
 gen_decode(_, Type, _Info, _Mps) ->
-    meta:error(?MODULE, unexpected_type, Type).
+    meta:error(?MODULE, unexpected_type_decode, Type).
 
 
 
@@ -259,7 +292,7 @@ gen_field_to_integer(QStr, Types, Info, Mps) ->
     NTs = lists:zip(lists:seq(2, length(Types)+1), Types),
     {Es,Mps1} = lists:mapfoldl(
                   fun({N,T},M) ->
-                          decode_field(QStr, N,T, Info, M)
+                          decode_field(QStr, N, T, Info, M)
                   end, Mps, NTs),
     [Last] = erl_syntax:fun_expr_clauses(
                ?q(fun(_,_) -> undefined end)),
@@ -300,6 +333,35 @@ decode_record(QStr, Index, Fn, Type, Info, Mps) ->
                  end)),
     {Def, Mps1}. 
 
+decode_union(QStr, Types, Info, Mps) ->
+    {Cs,MpsN} =
+        lists:mapfoldl(
+          fun(TA, Mps1) ->
+                  Type = type_ref(TA),
+                  {VFun, Mps2} = fetch_decode(QStr, Type, Info, Mps1),
+                  QF = case get_guard(Type, Mps2) of
+                           none ->
+                               ?q(fun(V) ->
+                                          ?s(VFun(?q(V)))
+                                  end);
+                           GFun ->
+                               ?q(fun(V) when ?s(GFun(?q(V))) ->
+                                          ?s(VFun(?q(V)))
+                                  end)
+                       end,
+                  [C] = erl_syntax:fun_expr_clauses(QF),
+                  {C,Mps2}
+          end, Mps, Types),
+    Def = erl_syntax:revert(erl_syntax:fun_expr(Cs)),
+    {Def, MpsN}.
+
+decode_standard(Type, GFun, Mps) ->
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           Item
+                   end
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun).
 
 %%
 %% Utils
@@ -356,8 +418,10 @@ gen_var(QRec) ->
 %%
 %% Formats error messages for compiler 
 %%
-format_error({unexpected_type, Type}) ->
-    format("JSON generator doesn't know how to handle type ~p", [Type]).
+format_error({unexpected_type_encode, Type}) ->
+    format("Don't know how to encode type ~p", [Type]);
+format_error({unexpected_type_decode, Type}) ->
+    format("Don't know how to decode type ~p", [Type]).
 
 format(Format, Args) ->
     io_lib:format(Format, Args).
