@@ -67,30 +67,26 @@ decode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
 fetch_encode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
-            case proplists:lookup(Type, Mps#mps.defs) of
-                {Type, {Fun, _FN, _GFun, _Def}} ->
-                    {Fun, Mps};
+            As = meta:reify_attributes(encode, Info),
+            true = is_list(As),
+            case proplists:lookup(Type, As) of
                 none ->
-                    gen_encode(QRec, Type, Info, Mps)
+                    case proplists:lookup(Type, Mps#mps.defs) of
+                        {Type, {Fun, _FN, _GFun, _Def}} ->
+                            {Fun, Mps};
+                        none ->
+                            gen_encode(QRec, Type, Info, Mps)
+                    end;
+                {Type, Fun} ->
+                    VFun = json_fun(Fun),
+                    add_fun_def(Type, none, Mps, none, VFun)
             end;
-        {Type, {M,F}} ->
-            VFun = fun(_) ->
-                           fun(Item) -> 
-                                   QM = erl_parse:abstract(M),
-                                   QF = erl_parse:abstract(F),
-                                   ?q(?s(QM):?s(QF)(?s(Item)))
-                           end
-                   end,
-            add_fun_def(Type, none, Mps, none, VFun);
-        {Type, F} ->
-            VFun = fun(_) ->
-                           fun(Item) -> 
-                                   QF = erl_parse:abstract(F),
-                                   ?q(?s(QF)(?s(Item)))
-                           end
-                   end,
+        {Type, Fun} ->
+            VFun = json_fun(Fun),
             add_fun_def(Type, none, Mps, none, VFun)
     end.
+
+
     
 gen_encode(QRec, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
@@ -237,30 +233,25 @@ encode_standard(Type, GFun, Mps) ->
 fetch_decode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
-            case proplists:lookup(Type, Mps#mps.defs) of
-                {Type, {Fun, _FN, _GFun, _Def}} ->
-                    {Fun, Mps};
+            As = meta:reify_attributes(decode, Info),
+            true = is_list(As),
+            case proplists:lookup(Type, As) of
                 none ->
-                    gen_decode(QRec, Type, Info, Mps)
+                    case proplists:lookup(Type, Mps#mps.defs) of
+                        {Type, {Fun, _FN, _GFun, _Def}} ->
+                            {Fun, Mps};
+                        none ->
+                            gen_decode(QRec, Type, Info, Mps)
+                    end;
+                {Type, Fun} ->
+                    VFun = json_fun(Fun),
+                    add_fun_def(Type, none, Mps, none, VFun)
             end;
-        {Type, {M,F}} ->
-            VFun = fun(_) ->
-                           fun(Item) -> 
-                                   QM = erl_parse:abstract(M),
-                                   QF = erl_parse:abstract(F),
-                                   ?q(?s(QM):?s(QF)(?s(Item)))
-                           end
-                   end,
-            add_fun_def(Type, none, Mps, none, VFun);
-        {Type, F} ->
-            VFun = fun(_) ->
-                           fun(Item) -> 
-                                   QF = erl_parse:abstract(F),
-                                   ?q(?s(QF)(?s(Item)))
-                           end
-                   end,
+        {Type, Fun} ->
+            VFun = json_fun(Fun),
             add_fun_def(Type, none, Mps, none, VFun)
     end.
+
 
 
 gen_decode(QStr, {record, [{atom, RecName}]} = Type, Info, Mps) ->
@@ -285,9 +276,6 @@ gen_decode(QStr, {list, [InnerType]} = Type, Info, Mps) ->
                      [?s(Fun(?q(X))) || X <- ?s(QXs)]
              end),
     add_fun_def(Type, Def, Mps1);
-
-%% gen_decode(QStr, {union, [{atom, undefined}, Type]}, Info, Mps) ->
-%%     fetch_decode(QStr, type_ref(Type), Info, Mps);
 
 gen_decode(QRec, {union, Types} = Type, Info, Mps) ->
     {Def,Mps1} = decode_union(QRec, Types, Info, Mps),
@@ -463,14 +451,29 @@ add_fun_def(Type, Def, #mps{defs = Defs} = Mps, GFun, VFun) ->
 get_guard(Type, #mps{defs = Defs}) ->
     {Type, {_Fun, _FN, GFun, _Def}} = proplists:lookup(Type, Defs),
     GFun.
-    
-
+   
 gen_var(QRec) ->
     Vn = erl_syntax:variable_name(QRec),
     SVn = atom_to_list(Vn),
     SVn1 = SVn ++ "1",
     erl_syntax:revert(erl_syntax:variable(SVn1)).
 
+
+json_fun({Mod,Fun}) ->
+    fun(_) ->
+            fun(Item) -> 
+                    QM = erl_parse:abstract(Mod),
+                    QF = erl_parse:abstract(Fun),
+                    ?q(?s(QM):?s(QF)(?s(Item)))
+            end
+    end;
+json_fun(LocalFun) ->
+    fun(_) ->
+            fun(Item) -> 
+                    QF = erl_parse:abstract(LocalFun),
+                    ?q(?s(QF)(?s(Item)))
+            end
+    end.
 
 %%
 %% Formats error messages for compiler 
