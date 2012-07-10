@@ -34,8 +34,7 @@ encode_gen(QRec, Record, Info) ->
 encode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
     Type = {record, [{atom,RecordName}]},
     Subs1 =
-        [{type_ref({record,[{atom,IR}]}),
-          F}
+        [{{record,[{atom,IR}]}, F}
          || {{{record,IR},_,[]},F} <- Subs],
     Mps = #mps{defs = [], subs = Subs1},
     {Fun,Mps1} = gen_encode(QRec, Type, Info, Mps),
@@ -49,7 +48,10 @@ decode_gen(QRec, Record, Info) ->
 
 decode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
     Type = {record, [{atom,RecordName}]},
-    Mps = #mps{defs = [], subs = Subs},
+    Subs1 =
+        [{{record,[{atom,IR}]}, F}
+         || {{{record,IR},_,[]},F} <- Subs],
+    Mps = #mps{defs = [], subs = Subs1},
     {Fun,Mps1} = gen_decode(QRec, Type, Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
@@ -232,13 +234,34 @@ encode_standard(Type, GFun, Mps) ->
 %%
 %% Decoding
 %%
-fetch_decode(QRec, Type, Info, #mps{defs = Defs} = Mps) ->
-    case proplists:lookup(Type, Defs) of
-        {Type, {Fun, _Fn, _GFun, _Def}} ->
-            {Fun, Mps};
+fetch_decode(QRec, Type, Info, Mps) ->
+    case proplists:lookup(Type, Mps#mps.subs) of
         none ->
-            gen_decode(QRec, Type, Info, Mps)
+            case proplists:lookup(Type, Mps#mps.defs) of
+                {Type, {Fun, _FN, _GFun, _Def}} ->
+                    {Fun, Mps};
+                none ->
+                    gen_decode(QRec, Type, Info, Mps)
+            end;
+        {Type, {M,F}} ->
+            VFun = fun(_) ->
+                           fun(Item) -> 
+                                   QM = erl_parse:abstract(M),
+                                   QF = erl_parse:abstract(F),
+                                   ?q(?s(QM):?s(QF)(?s(Item)))
+                           end
+                   end,
+            add_fun_def(Type, none, Mps, none, VFun);
+        {Type, F} ->
+            VFun = fun(_) ->
+                           fun(Item) -> 
+                                   QF = erl_parse:abstract(F),
+                                   ?q(?s(QF)(?s(Item)))
+                           end
+                   end,
+            add_fun_def(Type, none, Mps, none, VFun)
     end.
+
 
 gen_decode(QStr, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
