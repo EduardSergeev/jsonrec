@@ -1,6 +1,6 @@
 {application, jsonrec,
  [{description, "Yet another JSON library"},
-  {vsn, "%%VSN%%"},
+  {vsn, "0.0.1"},
   {modules, []},
   {registered, []},
   {applications, []}]}.
