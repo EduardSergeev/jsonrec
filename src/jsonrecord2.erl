@@ -68,7 +68,6 @@ fetch_encode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
             As = meta:reify_attributes(encode, Info),
-            true = is_list(As),
             case proplists:lookup(Type, As) of
                 none ->
                     case proplists:lookup(Type, Mps#mps.defs) of
@@ -234,7 +233,6 @@ fetch_decode(QRec, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
             As = meta:reify_attributes(decode, Info),
-            true = is_list(As),
             case proplists:lookup(Type, As) of
                 none ->
                     case proplists:lookup(Type, Mps#mps.defs) of
