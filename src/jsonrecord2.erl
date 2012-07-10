@@ -315,9 +315,9 @@ decode_default(Ind, QDef) ->
 
 
 decode_field(QStr, Ind, ?FIELD(Fn), Info, Mps) ->
-    decode_record(QStr, Ind, Fn, undefined, Info, Mps);
+    decode_record(QStr, Ind, Fn, {any, []}, Info, Mps);
 decode_field(QStr, Ind, ?FIELD(Fn, _Def), Info, Mps) ->
-    decode_record(QStr, Ind, Fn, undefined, Info, Mps);
+    decode_record(QStr, Ind, Fn, {any, []}, Info, Mps);
 decode_field(QStr, Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
     decode_record(QStr, Ind, Fn, type_ref(Type), Info, Mps);
 decode_field(QStr, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
