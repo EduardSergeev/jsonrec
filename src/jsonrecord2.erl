@@ -3,7 +3,8 @@
 -include_lib("meta/include/meta.hrl").
 -include_lib("meta/include/meta_syntax.hrl").
 
--export([encode_gen/3, decode_gen/3]).
+-export([encode_gen/3, encode_gen/4,
+         decode_gen/3, decode_gen/4]).
 
 -export([format_error/1]).
 
@@ -25,21 +26,33 @@
          ?FIELD(Name, Default),
          ?TYPE(_Type, _Args) = Type}).
 
+-record(mps, {defs, subs}).
 
-encode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
+encode_gen(QRec, Record, Info) ->
+    encode_gen(QRec, Record, Info, []).
+
+encode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
     Type = {record, [{atom,RecordName}]},
-    {Fun,Mps} = gen_encode(QRec, Type, Info, []),
+    Subs1 =
+        [{type_ref({record,[{atom,IR}]}),
+          F}
+         || {{{record,IR},_,[]},F} <- Subs],
+    Mps = #mps{defs = [], subs = Subs1},
+    {Fun,Mps1} = gen_encode(QRec, Type, Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
-          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps),
+          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
     erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
 
+decode_gen(QRec, Record, Info) ->
+    decode_gen(QRec, Record, Info, []).
 
-decode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
+decode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
     Type = {record, [{atom,RecordName}]},
-    {Fun,Mps} = gen_decode(QRec, Type, Info, []),
+    Mps = #mps{defs = [], subs = Subs},
+    {Fun,Mps1} = gen_decode(QRec, Type, Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
-          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps),
+          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
     erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
 
@@ -50,11 +63,31 @@ decode_gen(QRec, {{record,RecordName},_,[]}, Info) ->
 %% Encoding
 %%
 fetch_encode(QRec, Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps) of
-        {Type, {Fun, _FN, _GFun, _Def}} ->
-            {Fun, Mps};
+    case proplists:lookup(Type, Mps#mps.subs) of
         none ->
-            gen_encode(QRec, Type, Info, Mps)
+            case proplists:lookup(Type, Mps#mps.defs) of
+                {Type, {Fun, _FN, _GFun, _Def}} ->
+                    {Fun, Mps};
+                none ->
+                    gen_encode(QRec, Type, Info, Mps)
+            end;
+        {Type, {M,F}} ->
+            VFun = fun(_) ->
+                           fun(Item) -> 
+                                   QM = erl_parse:abstract(M),
+                                   QF = erl_parse:abstract(F),
+                                   ?q(?s(QM):?s(QF)(?s(Item)))
+                           end
+                   end,
+            add_fun_def(Type, none, Mps, none, VFun);
+        {Type, F} ->
+            VFun = fun(_) ->
+                           fun(Item) -> 
+                                   QF = erl_parse:abstract(F),
+                                   ?q(?s(QF)(?s(Item)))
+                           end
+                   end,
+            add_fun_def(Type, none, Mps, none, VFun)
     end.
     
 gen_encode(QRec, {record, [{atom, RecName}]} = Type, Info, Mps) ->
@@ -199,8 +232,8 @@ encode_standard(Type, GFun, Mps) ->
 %%
 %% Decoding
 %%
-fetch_decode(QRec, Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps) of
+fetch_decode(QRec, Type, Info, #mps{defs = Defs} = Mps) ->
+    case proplists:lookup(Type, Defs) of
         {Type, {Fun, _Fn, _GFun, _Def}} ->
             {Fun, Mps};
         none ->
@@ -395,16 +428,17 @@ add_fun_def(Type, Def, Mps, GFun) ->
            end,
     add_fun_def(Type, Def, Mps, GFun, VFun).
 
-add_fun_def(Type, Def, Mps, GFun, VFun) ->
-    Ind = length(Mps),
+add_fun_def(Type, Def, #mps{defs = Defs} = Mps, GFun, VFun) ->
+    Ind = length(Defs),
     FunName = list_to_atom("Fun" ++ integer_to_list(Ind)),
     QVFunName = erl_syntax:revert(erl_syntax:variable(FunName)),
     Fun = VFun(QVFunName),
-    {Fun, [{Type,{Fun,QVFunName,GFun,Def}}|Mps]}.
+    Defs1 = [{Type,{Fun,QVFunName,GFun,Def}}|Defs],
+    {Fun, Mps#mps{defs = Defs1}}.
 
 
-get_guard(Type, Mps) ->
-    {Type, {_Fun, _FN, GFun, _Def}} = proplists:lookup(Type, Mps),
+get_guard(Type, #mps{defs = Defs}) ->
+    {Type, {_Fun, _FN, GFun, _Def}} = proplists:lookup(Type, Defs),
     GFun.
     
 
