@@ -10,15 +10,24 @@
 
 -type my_integer() :: integer().
 
+-type my_list(A) :: [A].
+
+-spec f1(any()) -> any().
+                
+
+-record(rec_, {id}).
+
 -record(rec0,
         {id :: my_integer(),
          an :: any(),
+         atom :: atom(),
          some_field = true :: boolean()}).
 
 -record(rec1,
         {id = 0 :: integer(),
          rec = #rec0{id = 42} :: #rec0{},
          recs = [] :: [#rec0{}],
+%%         recs2 = [] :: my_list(#rec0{}),
          fi = <<>> :: binary()}).
 
 -type my_rec() :: #rec1{}.
@@ -41,8 +50,24 @@
         {id :: integer(),
          status = new :: status() }).
 
+t1() ->
+    meta:reify_type(my_integer()).
+
+t2() ->
+    meta:reify_type(#rec_{}).
+
+t3() ->
+    meta:reify_type(#rec0{}).
 
 
+f1(A) ->
+    A.
+
+to_struct(#rec_{} = Rec) ->
+    encode_gen(
+      meta:quote(Rec),
+      meta:reify_type(#rec_{}),
+      meta:reify());
 to_struct(#rec0{} = Rec) ->
     encode_gen(
       meta:quote(Rec),
@@ -70,6 +95,11 @@ to_struct(#rec4{} = Rec) ->
       meta:reify()).
 
 
+from_struct(rec_, Struct) ->
+    decode_gen(
+      ?q(Struct),
+      meta:reify_type(#rec_{}),
+      meta:reify());
 from_struct(rec0, Struct) ->
     decode_gen(
       ?q(Struct),

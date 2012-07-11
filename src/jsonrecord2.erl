@@ -59,8 +59,6 @@ decode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
     erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
 
 
-    
-
 %%
 %% Encoding
 %%
@@ -110,17 +108,6 @@ gen_encode(QRec, {union, Types} = Type, Info, Mps) ->
     {Def,Mps1} = encode_union(QRec, Types, Info, Mps),
     add_fun_def(Type, Def, Mps1);
 
-gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
-    VFun = fun(_) ->
-                   fun(_Item) ->
-                           erl_parse:abstract(Atom)
-                   end
-           end,
-    GFun = fun(Item) ->
-                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
-           end,
-    add_fun_def(Type, none, Mps, GFun, VFun);
-
 gen_encode(_, {integer, []} = Type, _Info, Mps) ->
     GFun = fun(Item) ->
                    ?q(is_integer(?s(Item)))
@@ -141,6 +128,11 @@ gen_encode(_, {boolean, []} = Type, _Info, Mps) ->
                    ?q(is_boolean(?s(Item)))
            end,
     encode_standard(Type, GFun, Mps);
+gen_encode(_, {atom, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_atom(?s(Item)))
+           end,
+    encode_standard(Type, GFun, Mps);
 
 gen_encode(_, {any, []} = Type, _Info, Mps) ->
     GFun = fun(_Item) ->
@@ -148,8 +140,20 @@ gen_encode(_, {any, []} = Type, _Info, Mps) ->
            end,
     encode_standard(Type, GFun, Mps);
 
-gen_encode(QRec, {UserType,[]} = Type, Info, Mps) ->
-    {_, Type1, []} =  meta:reify_type(UserType, Info),
+gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
+    VFun = fun(_) ->
+                   fun(_Item) ->
+                           erl_parse:abstract(Atom)
+                   end
+           end,
+    GFun = fun(Item) ->
+                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun);
+
+
+gen_encode(QRec, {_UserType,[]} = Type, Info, Mps) ->
+    {_, Type1, []} =  meta:reify_type(Type, Info),
     TR = type_ref(Type1),
     {Fun, Mps1} = fetch_encode(QRec, TR, Info, Mps),
     VFun = fun(_) -> Fun end,
@@ -279,17 +283,6 @@ gen_decode(QRec, {union, Types} = Type, Info, Mps) ->
     {Def,Mps1} = decode_union(QRec, Types, Info, Mps),
     add_fun_def(Type, Def, Mps1);
 
-gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
-    VFun = fun(_) ->
-                   fun(_Item) ->
-                           erl_parse:abstract(Atom)
-                   end
-           end,
-    GFun = fun(Item) ->
-                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
-           end,
-    add_fun_def(Type, none, Mps, GFun, VFun);
-
 gen_decode(_, {integer, []} = Type, _Info, Mps) ->
     GFun = fun(Item) ->
                    ?q(is_integer(?s(Item)))
@@ -310,6 +303,23 @@ gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
                    ?q(is_boolean(?s(Item)))
            end,
     decode_standard(Type, GFun, Mps);
+gen_decode(_, {atom, []} = Type, _Info, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(is_atom(?s(Item)))
+           end,
+    decode_standard(Type, GFun, Mps);
+
+gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
+    VFun = fun(_) ->
+                   fun(_Item) ->
+                           erl_parse:abstract(Atom)
+                   end
+           end,
+    GFun = fun(Item) ->
+                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun);
+
 
 gen_decode(_, {any, []} = Type, _Info, Mps) ->
     GFun = fun(_Item) ->
@@ -317,8 +327,8 @@ gen_decode(_, {any, []} = Type, _Info, Mps) ->
            end,
     decode_standard(Type, GFun, Mps);
 
-gen_decode(QStr, {UserType,[]} = Type, Info, Mps) ->
-    {_, Type1, []} =  meta:reify_type(UserType, Info),
+gen_decode(QStr, {_UserType,[]} = Type, Info, Mps) ->
+    {_, Type1, []} =  meta:reify_type(Type, Info),
     TR = type_ref(Type1),
     {Fun, Mps1} = fetch_decode(QStr, TR, Info, Mps),
     VFun = fun(_) -> Fun end,
@@ -418,7 +428,6 @@ atom_to_msbinary(Atom) ->
     list_to_binary(atom_to_mslist(Atom)).
 
 type_ref({type, _Ln, Tag, Args}) ->
-%%    {Tag, Args};
     {Tag, [type_ref(A) || A <- Args]};
 type_ref({atom, _Ln, Atom}) ->
     {atom, Atom};
