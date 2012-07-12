@@ -81,10 +81,14 @@ fetch_encode(QRec, Type, Info, Mps) ->
                         none ->
                             gen_encode(QRec, Type, Info, Mps)
                     end;
+                {Type, {_,Args} = SType} when is_list(Args) ->
+                    fetch_encode(QRec, SType, Info, Mps);
                 {Type, Fun} ->
                     VFun = json_fun(Fun),
                     add_fun_def(Type, none, Mps, none, VFun)
             end;
+        {Type, {_,Args} = SType} when is_list(Args) ->
+            fetch_encode(QRec, SType, Info, Mps);
         {Type, Fun} ->
             VFun = json_fun(Fun),
             add_fun_def(Type, none, Mps, none, VFun)
@@ -240,7 +244,7 @@ encode_standard(Type, GFun, Mps) ->
 %%
 %% Decoding
 %%
-fetch_decode(QRec, Type, Info, Mps) ->
+fetch_decode(QStr, Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
             As = meta:reify_attributes(decode, Info),
@@ -250,12 +254,16 @@ fetch_decode(QRec, Type, Info, Mps) ->
                         {Type, {Fun, _FN, _GFun, _Def}} ->
                             {Fun, Mps};
                         none ->
-                            gen_decode(QRec, Type, Info, Mps)
+                            gen_decode(QStr, Type, Info, Mps)
                     end;
+                {Type, {_,Args} = SType} when is_list(Args) ->
+                    fetch_decode(QStr, SType, Info, Mps);
                 {Type, Fun} ->
                     VFun = json_fun(Fun),
                     add_fun_def(Type, none, Mps, none, VFun)
             end;
+        {Type, {_,Args} = SType} when is_list(Args) ->
+            fetch_decode(QStr, SType, Info, Mps);
         {Type, Fun} ->
             VFun = json_fun(Fun),
             add_fun_def(Type, none, Mps, none, VFun)

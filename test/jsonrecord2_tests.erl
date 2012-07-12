@@ -12,6 +12,7 @@
 
 -include("../include/jsonrecord2.hrl").
 
+-compile(export_all).
 
 -type my_integer() :: integer().
 
@@ -43,12 +44,18 @@
          arr = [] :: [my_integer()],
          rec1 = [#rec1{}]:: [my_rec()]}).
 
+
 -type any_rec() :: #rec0{} | #rec1{}.
--type status() :: new | sent | loaded | my_atom().
+
+-decode({{any_rec,[]}, {any,[]}}).
 
 -record(rec3,
         {id = 0 :: integer(),
-         rec = #rec0{id = 1} :: any_rec()}).
+         type = rec0 :: rec0 | rec1,         %% we need this descriptor
+         rec = #rec0{id = 1} :: any_rec()}). %% to be able to decode 'rec' field
+
+
+-type status() :: new | sent | loaded | my_atom().
 
 -record(rec4, 
         {id :: integer(),
@@ -84,8 +91,11 @@ from_struct(rec1, Struct) ->
     ?decode_gen(#rec1{}, Struct);
 from_struct(rec2, Struct) ->
     ?decode_gen(#rec2{}, Struct);
-%% from_struct(rec3, Struct) ->
-%%    ?decode_gen(#rec3{}, Struct);
+
+from_struct(rec3, Struct) ->
+    #rec3{type = Type, rec = Str} = Rec = ?decode_gen(#rec3{}, Struct),
+    Rec#rec3{rec = from_struct(Type, Str)};
+
 from_struct(rec4, Struct) ->
     ?decode_gen(#rec4{}, Struct).
 
@@ -113,6 +123,15 @@ rec1_test() ->
          fi = <<"La">>},
     decode_encode(rec1, Rec).
 
+rec3_test() ->
+    Rec0 = #rec3{id = 1},
+    Rec1 = #rec3
+        {id = 2,
+         type = rec1,
+         rec = #rec1{id = 2}},
+    decode_encode(rec3, Rec0),
+    decode_encode(rec3, Rec1).
+    
 
 decode_encode(Tag, Item) ->
     Struct = to_struct(Item),
