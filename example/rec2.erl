@@ -63,6 +63,16 @@ t3() ->
 f1(A) ->
     A.
 
+to_struct(Rec) when is_integer(Rec) ->
+    encode_gen(
+      meta:quote(Rec),
+      meta:reify_type(my_integer()),
+      meta:reify());
+to_struct(Rec) when is_atom(Rec) ->
+    encode_gen(
+      meta:quote(Rec),
+      meta:reify_type(status()),
+      meta:reify());
 to_struct(#rec_{} = Rec) ->
     encode_gen(
       meta:quote(Rec),
@@ -94,7 +104,16 @@ to_struct(#rec4{} = Rec) ->
       meta:reify_type(#rec4{}),
       meta:reify()).
 
-
+from_struct(integer, Struct) ->
+    decode_gen(
+      meta:quote(Struct),
+      meta:reify_type(my_integer()),
+      meta:reify());
+from_struct(atom, Struct) ->
+    decode_gen(
+      meta:quote(Struct),
+      meta:reify_type(status()),
+      meta:reify());
 from_struct(rec_, Struct) ->
     decode_gen(
       ?q(Struct),

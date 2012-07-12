@@ -31,32 +31,39 @@
 encode_gen(QRec, Record, Info) ->
     encode_gen(QRec, Record, Info, []).
 
-encode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
-    Type = {record, [{atom,RecordName}]},
+encode_gen(QRec, {{record, Name}, _Def, []}, Info, Subs) ->
+    encode_gen(QRec, {record,[{atom,Name}]}, Info, Subs);
+encode_gen(QRec, {Name, _Def, Args}, Info, Subs) ->
+    encode_gen(QRec, {Name,Args}, Info, Subs);
+encode_gen(QRec, {_Name,_Args} = Type, Info, Subs) ->
     Subs1 =
         [{{record,[{atom,IR}]}, F}
          || {{{record,IR},_,[]},F} <- Subs],
     Mps = #mps{defs = [], subs = Subs1},
-    {Fun,Mps1} = gen_encode(QRec, Type, Info, Mps),
+    {Fun,Mps1} = gen_encode(QRec, type_ref(Type), Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
     erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
 
-decode_gen(QRec, Record, Info) ->
-    decode_gen(QRec, Record, Info, []).
 
-decode_gen(QRec, {{record,RecordName},_,[]}, Info, Subs) ->
-    Type = {record, [{atom,RecordName}]},
+decode_gen(QStr, Record, Info) ->
+    decode_gen(QStr, Record, Info, []).
+
+decode_gen(QStr, {{record, Name}, _Def, []}, Info, Subs) ->
+    decode_gen(QStr, {record,[{atom,Name}]}, Info, Subs);
+decode_gen(QStr, {Name, _Def, Args}, Info, Subs) ->
+    decode_gen(QStr, {Name,Args}, Info, Subs);
+decode_gen(QStr, {_Name,_Args} = Type, Info, Subs) ->
     Subs1 =
         [{{record,[{atom,IR}]}, F}
          || {{{record,IR},_,[]},F} <- Subs],
     Mps = #mps{defs = [], subs = Subs1},
-    {Fun,Mps1} = gen_decode(QRec, Type, Info, Mps),
+    {Fun,Mps1} = gen_decode(QStr, type_ref(Type), Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
-    erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
+    erl_syntax:block_expr(Fs ++ [Fun(QStr)]).
 
 
 %%
