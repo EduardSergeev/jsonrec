@@ -198,9 +198,10 @@ gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
     add_fun_def(Type, none, Mps, GFun, VFun);
 
 
-gen_encode(QRec, {_UserType,[]} = Type, Info, Mps) ->
-    {_, Type1, []} =  meta:reify_type(Type, Info),
-    TR = type_ref(Type1),
+gen_encode(QRec, {_UserType, Args} = Type, Info, Mps) ->
+    Type1 =  meta:reify_type(Type, Info),
+    {_, Type2, []} = ground_type(Type1, Args),
+    TR = type_ref(Type2),
     {Fun, Mps1} = fetch_encode(QRec, TR, Info, Mps),
     VFun = fun(_) -> Fun end,
     GFun = get_guard(TR, Mps1),
@@ -388,9 +389,10 @@ gen_decode(_, {any, []} = Type, _Info, Mps) ->
            end,
     decode_standard(Type, GFun, Mps);
 
-gen_decode(QStr, {_UserType,[]} = Type, Info, Mps) ->
-    {_, Type1, []} =  meta:reify_type(Type, Info),
-    TR = type_ref(Type1),
+gen_decode(QStr, {_UserType,Args} = Type, Info, Mps) ->
+    Type1 =  meta:reify_type(Type, Info),
+    {_, Type2, []} = ground_type(Type1, Args),
+    TR = type_ref(Type2),
     {Fun, Mps1} = fetch_decode(QStr, TR, Info, Mps),
     VFun = fun(_) -> Fun end,
     GFun = get_guard(TR, Mps1),
@@ -504,6 +506,22 @@ type_ref({atom, _Ln, Atom}) ->
     {atom, Atom};
 type_ref(Converted) ->
     Converted.
+
+ground_type({Name, Def, Params}, Args) ->
+    PAs = lists:zip(Params, Args),
+    Ls = lists:map(
+           fun({{var, _, P}, TA}) ->
+                   {P, TA}
+           end, PAs),
+
+    DC = dict:from_list(Ls),
+    Fun = fun({var, _Ln, P}) ->
+                  dict:fetch(P, DC);
+             (Smt) ->
+                  Smt
+          end,
+    Def1 = meta:map(Fun, Def),
+    {Name, Def1, []}.
 
 
 add_fun_def(Type, Def, Mps) ->

@@ -12,12 +12,13 @@
 
 -include("../include/jsonrecord2.hrl").
 
--compile(export_all).
+%%-compile(export_all).
 
 -type my_integer() :: integer().
+-type my_list(A) :: [A].
 
-%%-type my_list(A) :: [A].
-
+%% -type my_tuple() :: {integer(),{float(),{integer(),float()}}}.
+%% -type my_tuple(A,B) :: {A,{B,{A,B}}}.
 
 -record(untyped_rec, {id, f1, f2}).
 
@@ -30,9 +31,7 @@
 -record(rec1,
         {id = 0 :: integer(),
          rec = #rec0{id = 42} :: #rec0{},
-         recs = [] :: [#rec0{}],
-%%         recs2 = [] :: my_list(#rec0{}),
-         recs2 = [] :: [#rec0{}],
+         recs = [] :: my_list(#rec0{}),
          fi = <<>> :: binary()}).
 
 -type my_rec() :: #rec1{}.
@@ -40,7 +39,8 @@
 
 -record(rec2,
         {id :: my_integer(),
-         rec0 :: [#rec0{}],
+         ref_ids :: my_list(my_integer()),
+         recs0 :: [#rec0{}],
          arr = [] :: [my_integer()],
          rec1 = [#rec1{}]:: [my_rec()]}).
 
@@ -123,6 +123,14 @@ rec1_test() ->
          fi = <<"La">>},
     decode_encode(rec1, Rec).
 
+rec2_test() ->
+    Rec = #rec2
+        {id = 24,
+         ref_ids = [1,2,3,4],
+         recs0 = [#rec0{id = 43, an = false}],
+         arr = [5]},
+   decode_encode(rec2, Rec).
+
 rec3_test() ->
     Rec0 = #rec3{id = 1},
     Rec1 = #rec3
@@ -136,11 +144,6 @@ rec3_test() ->
 %%
 %% 'name_conv' option test
 %%
-to_upper(Atom) ->
-    Str = atom_to_list(Atom),
-    UStr = string:to_upper(Str),
-    list_to_binary(UStr).
-    
 to_upper_struct(#rec0{} = Rec) ->
     ?encode_gen(#rec0{}, Rec,
                 [{name_handler, fun jr_test_remote:to_upper/1}]).
@@ -153,7 +156,6 @@ from_upper_struct(Struct) ->
                           UStr = string:to_upper(Str),
                           list_to_binary(UStr)
                   end}]).
-
     
 name_conv_test() ->
     Rec = #rec0
