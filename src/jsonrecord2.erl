@@ -8,6 +8,11 @@
 
 -export([format_error/1]).
 
+-define(TYPE_METHODS_OPT, type_methods).
+-define(TYPE_SURROGATES_OPT, type_surrogates).
+-define(NAME_HANDLER_OPT, name_handler).
+
+
 -define(TYPE(Type, Args),
         {type, _Ln3, Type, Args}).
 -define(FIELD(Name),
@@ -26,20 +31,31 @@
          ?FIELD(Name, Default),
          ?TYPE(_Type, _Args) = Type}).
 
--record(mps, {defs, subs}).
+-record(mps,
+        {defs = [],
+         subs = [],
+         name_conv}).
 
 encode_gen(QRec, Record, Info) ->
     encode_gen(QRec, Record, Info, []).
 
-encode_gen(QRec, {{record, Name}, _Def, []}, Info, Subs) ->
-    encode_gen(QRec, {record,[{atom,Name}]}, Info, Subs);
-encode_gen(QRec, {Name, _Def, Args}, Info, Subs) ->
-    encode_gen(QRec, {Name,Args}, Info, Subs);
-encode_gen(QRec, {_Name,_Args} = Type, Info, Subs) ->
+encode_gen(QRec, {{record, Name}, _Def, []}, Info, Options) ->
+    encode_gen(QRec, {record,[{atom,Name}]}, Info, Options);
+encode_gen(QRec, {Name, _Def, Args}, Info, Options) ->
+    encode_gen(QRec, {Name,Args}, Info, Options);
+encode_gen(QRec, {_Name,_Args} = Type, Info, Options) ->
+    Subs = proplists:get_value(?TYPE_METHODS_OPT, Options, []),
+    NameHandler = proplists:get_value(
+                    ?NAME_HANDLER_OPT,
+                    Options,
+                    fun atom_to_msbinary/1),
     Subs1 =
         [{{record,[{atom,IR}]}, F}
          || {{{record,IR},_,[]},F} <- Subs],
-    Mps = #mps{defs = [], subs = Subs1},
+    Mps = #mps{
+      defs = [],
+      subs = Subs1,
+      name_conv = NameHandler},
     {Fun,Mps1} = gen_encode(QRec, type_ref(Type), Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
@@ -50,15 +66,23 @@ encode_gen(QRec, {_Name,_Args} = Type, Info, Subs) ->
 decode_gen(QStr, Record, Info) ->
     decode_gen(QStr, Record, Info, []).
 
-decode_gen(QStr, {{record, Name}, _Def, []}, Info, Subs) ->
-    decode_gen(QStr, {record,[{atom,Name}]}, Info, Subs);
-decode_gen(QStr, {Name, _Def, Args}, Info, Subs) ->
-    decode_gen(QStr, {Name,Args}, Info, Subs);
-decode_gen(QStr, {_Name,_Args} = Type, Info, Subs) ->
+decode_gen(QStr, {{record, Name}, _Def, []}, Info, Options) ->
+    decode_gen(QStr, {record,[{atom,Name}]}, Info, Options);
+decode_gen(QStr, {Name, _Def, Args}, Info, Options) ->
+    decode_gen(QStr, {Name,Args}, Info, Options);
+decode_gen(QStr, {_Name,_Args} = Type, Info, Options) ->
+    Subs = proplists:get_value(?TYPE_METHODS_OPT, Options, []),
+    NameHandler = proplists:get_value(
+                    ?NAME_HANDLER_OPT,
+                    Options,
+                    fun atom_to_msbinary/1),
     Subs1 =
         [{{record,[{atom,IR}]}, F}
          || {{{record,IR},_,[]},F} <- Subs],
-    Mps = #mps{defs = [], subs = Subs1},
+    Mps = #mps{
+      defs = [],
+      subs = Subs1,
+      name_conv = NameHandler},
     {Fun,Mps1} = gen_decode(QStr, type_ref(Type), Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
@@ -140,10 +164,15 @@ gen_encode(_, {boolean, []} = Type, _Info, Mps) ->
            end,
     encode_standard(Type, GFun, Mps);
 gen_encode(_, {atom, []} = Type, _Info, Mps) ->
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           ?q(atom_to_binary(?s(Item), utf8))
+                   end
+           end,
     GFun = fun(Item) ->
                    ?q(is_atom(?s(Item)))
            end,
-    encode_standard(Type, GFun, Mps);
+    add_fun_def(Type, none, Mps, GFun, VFun);
 
 gen_encode(_, {any, []} = Type, _Info, Mps) ->
     GFun = fun(_Item) ->
@@ -154,7 +183,13 @@ gen_encode(_, {any, []} = Type, _Info, Mps) ->
 gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(_Item) ->
-                           erl_parse:abstract(Atom)
+                           if
+                               Atom =:= undefined ->
+                                   ?q(undefined);
+                               true ->
+                                   erl_parse:abstract(
+                                     atom_to_binary(Atom, utf8))
+                           end
                    end
            end,
     GFun = fun(Item) ->
@@ -194,9 +229,9 @@ encode_field(QRec, Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
 encode_field(QRec, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
     encode_typed(QRec, Ind, Fn, type_ref(Type), Info, Mps).
 
-encode_typed(QRec, Ind, Fn, Type, Info, Mps) ->
+encode_typed(QRec, Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     {Fun, Mps1} = fetch_encode(QRec, Type, Info, Mps),
-    AFN = erl_parse:abstract(atom_to_msbinary(Fn)),
+    AFN = erl_parse:abstract(NC(Fn)),
     QInd = erl_parse:abstract(Ind),
     Def = ?q(fun(Acc) ->
                      V = element(?s(QInd), ?s(QRec)),
@@ -319,10 +354,15 @@ gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
            end,
     decode_standard(Type, GFun, Mps);
 gen_decode(_, {atom, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_atom(?s(Item)))
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           ?q(binary_to_existing_atom(?s(Item), utf8))
+                   end
            end,
-    decode_standard(Type, GFun, Mps);
+    GFun = fun(Item) ->
+                   ?q(is_binary(?s(Item)))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun);
 
 gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
@@ -330,8 +370,14 @@ gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
                            erl_parse:abstract(Atom)
                    end
            end,
+    Bin = atom_to_binary(Atom, utf8),
     GFun = fun(Item) ->
-                   ?q(?s(Item) =:= ?s(erl_parse:abstract(Atom)))
+                   if
+                       Atom =:= undefined ->
+                           ?q(?s(Item) =:= undefined);
+                       true ->
+                           ?q(?s(Item) =:= ?s(erl_parse:abstract(Bin)))
+                   end
            end,
     add_fun_def(Type, none, Mps, GFun, VFun);
 
@@ -390,9 +436,9 @@ decode_field(QStr, Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
 decode_field(QStr, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
     decode_record(QStr, Ind, Fn, type_ref(Type), Info, Mps).
 
-decode_record(QStr, Index, Fn, Type, Info, Mps) ->
+decode_record(QStr, Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     {Fun, Mps1} = fetch_decode(QStr, Type, Info, Mps),
-    QFn = erl_parse:abstract(atom_to_msbinary(Fn)),
+    QFn = erl_parse:abstract(NC(Fn)),
     QInd = erl_parse:abstract(Index),
     [Def] = erl_syntax:fun_expr_clauses(
               ?q(fun(?s(QFn), V1) ->
@@ -430,18 +476,28 @@ decode_standard(Type, GFun, Mps) ->
            end,
     add_fun_def(Type, none, Mps, GFun, VFun).
 
+
 %%
-%% Utils
+%% Default data conversion functions
 %%
+atom_to_msbinary(Atom) ->
+    list_to_binary(atom_to_mslist(Atom)).
+
 atom_to_mslist(Atom) when is_atom(Atom) ->
     List = atom_to_list(Atom),
     Parts = string:tokens(List, "_"),
     Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
     lists:concat(Capitalized). 
 
-atom_to_msbinary(Atom) ->
-    list_to_binary(atom_to_mslist(Atom)).
+%% atom_to_binary(Atom) when is_atom(Atom) ->
+%%     atom_to_binary(Atom, utf8).
 
+%% binary_to_atom(Binary) when is_binary(Binary) ->
+%%     binary_to_existing_atom(Binary, utf8).
+
+%%
+%% Utils
+%%
 type_ref({type, _Ln, Tag, Args}) ->
     {Tag, [type_ref(A) || A <- Args]};
 type_ref({atom, _Ln, Atom}) ->

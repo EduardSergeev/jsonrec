@@ -104,7 +104,7 @@ untyped_test() ->
     Rec = #untyped_rec
         {id = 42,
          f1 = <<"Bin">>,
-         f2 = atom},
+         f2 = true},
     decode_encode(untyped_rec, Rec).
 
 
@@ -131,10 +131,59 @@ rec3_test() ->
          rec = #rec1{id = 2}},
     decode_encode(rec3, Rec0),
     decode_encode(rec3, Rec1).
-    
 
+
+%%
+%% 'name_conv' option test
+%%
+to_upper(Atom) ->
+    Str = atom_to_list(Atom),
+    UStr = string:to_upper(Str),
+    list_to_binary(UStr).
+    
+to_upper_struct(#rec0{} = Rec) ->
+    ?encode_gen(#rec0{}, Rec,
+                [{name_handler, fun jr_test_remote:to_upper/1}]).
+
+from_upper_struct(Struct) ->
+    ?decode_gen(#rec0{}, Struct,
+                [{name_handler,
+                  fun(Field) ->
+                          Str = atom_to_list(Field),
+                          UStr = string:to_upper(Str),
+                          list_to_binary(UStr)
+                  end}]).
+
+    
+name_conv_test() ->
+    Rec = #rec0
+        {id = 42,
+         an = 4.2,
+         atom = some_atom,
+         some_field = false},
+    Struct = to_upper_struct(Rec),
+    ?assertEqual({struct,
+                  [{<<"ID">>,42},
+                   {<<"AN">>,4.2},
+                   {<<"ATOM">>,<<"some_atom">>},
+                   {<<"SOME_FIELD">>,false}]},
+                Struct),
+    Restored = from_upper_struct(Struct),
+    ?assertEqual(Rec, Restored),
+    JS = mochijson2:encode(Struct),
+    Struct1 = mochijson2:decode(JS),
+    Restored1 = from_upper_struct(Struct1),
+    ?assertEqual(Rec, Restored1).
+
+%%
+%% Round-trip encoding/decoding
+%%    
 decode_encode(Tag, Item) ->
     Struct = to_struct(Item),
     Restored = from_struct(Tag, Struct),
-    ?assertEqual(Item, Restored).
+    ?assertEqual(Item, Restored),
+    JS = mochijson2:encode(Struct),
+    Struct1 = mochijson2:decode(JS),
+    Restored1 = from_struct(Tag, Struct1),
+    ?assertEqual(Item, Restored1).
     
