@@ -34,92 +34,47 @@
 -record(mps,
         {defs = [],
          subs = [],
+         attrs = [],
+         code_fun,
          name_conv}).
 
-encode_gen(QRec, Record, Info) ->
-    encode_gen(QRec, Record, Info, []).
+encode_gen(QRec, Type, Info) ->
+    encode_gen(QRec, Type, Info, []).
 
-encode_gen(QRec, {{record, Name}, _Def, []}, Info, Options) ->
-    encode_gen(QRec, {record,[{atom,Name}]}, Info, Options);
-encode_gen(QRec, {Name, _Def, Args}, Info, Options) ->
-    encode_gen(QRec, {Name,Args}, Info, Options);
-encode_gen(QRec, {_Name,_Args} = Type, Info, Options) ->
+encode_gen(QRec, Type, Info, Options) ->
+    code_gen(fun gen_encode/4, encode, QRec, Type, Info, Options).
+
+
+decode_gen(QStr, Type, Info) ->
+    decode_gen(QStr, Type, Info, []).
+
+decode_gen(QStr, Type, Info, Options) ->
+    code_gen(fun gen_decode/4, decode, QStr, Type, Info, Options).
+
+
+code_gen(CodeFun, Attr, QArg, Type, Info, Options) ->
+    Type1 = norm_type(Type),
     Subs = proplists:get_value(?TYPE_METHODS_OPT, Options, []),
-    NameHandler = proplists:get_value(
-                    ?NAME_HANDLER_OPT,
-                    Options,
-                    fun atom_to_msbinary/1),
-    Subs1 =
-        [{{record,[{atom,IR}]}, F}
-         || {{{record,IR},_,[]},F} <- Subs],
+    Subs1 = [norm_type(T) || T <- Subs],                      
+    NameFun = proplists:get_value(?NAME_HANDLER_OPT, Options,
+                                  fun atom_to_msbinary/1),
+    Attrs = meta:reify_attributes(Attr, Info),
     Mps = #mps{
       defs = [],
       subs = Subs1,
-      name_conv = NameHandler},
-    {Fun,Mps1} = gen_encode(QRec, type_ref(Type), Info, Mps),
+      attrs = Attrs,
+      code_fun = CodeFun,
+      name_conv = NameFun},
+    {Fun,Mps1} = CodeFun(QArg, type_ref(Type1), Info, Mps),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
-    erl_syntax:block_expr(Fs ++ [Fun(QRec)]).
-
-
-decode_gen(QStr, Record, Info) ->
-    decode_gen(QStr, Record, Info, []).
-
-decode_gen(QStr, {{record, Name}, _Def, []}, Info, Options) ->
-    decode_gen(QStr, {record,[{atom,Name}]}, Info, Options);
-decode_gen(QStr, {Name, _Def, Args}, Info, Options) ->
-    decode_gen(QStr, {Name,Args}, Info, Options);
-decode_gen(QStr, {_Name,_Args} = Type, Info, Options) ->
-    Subs = proplists:get_value(?TYPE_METHODS_OPT, Options, []),
-    NameHandler = proplists:get_value(
-                    ?NAME_HANDLER_OPT,
-                    Options,
-                    fun atom_to_msbinary/1),
-    Subs1 =
-        [{{record,[{atom,IR}]}, F}
-         || {{{record,IR},_,[]},F} <- Subs],
-    Mps = #mps{
-      defs = [],
-      subs = Subs1,
-      name_conv = NameHandler},
-    {Fun,Mps1} = gen_decode(QStr, type_ref(Type), Info, Mps),
-    Fs = [?q(?s(FN) = ?s(Def))
-          || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
-             Def /= none],
-    erl_syntax:block_expr(Fs ++ [Fun(QStr)]).
+    erl_syntax:block_expr(Fs ++ [Fun(QArg)]).
 
 
 %%
 %% Encoding
 %%
-fetch_encode(QRec, Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps#mps.subs) of
-        none ->
-            As = meta:reify_attributes(encode, Info),
-            case proplists:lookup(Type, As) of
-                none ->
-                    case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, {Fun, _FN, _GFun, _Def}} ->
-                            {Fun, Mps};
-                        none ->
-                            gen_encode(QRec, Type, Info, Mps)
-                    end;
-                {Type, {_,Args} = SType} when is_list(Args) ->
-                    fetch_encode(QRec, SType, Info, Mps);
-                {Type, Fun} ->
-                    VFun = json_fun(Fun),
-                    add_fun_def(Type, none, Mps, none, VFun)
-            end;
-        {Type, {_,Args} = SType} when is_list(Args) ->
-            fetch_encode(QRec, SType, Info, Mps);
-        {Type, Fun} ->
-            VFun = json_fun(Fun),
-            add_fun_def(Type, none, Mps, none, VFun)
-    end.
-
-
-    
 gen_encode(QRec, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     QRec1 = gen_var(QRec),
@@ -131,38 +86,21 @@ gen_encode(QRec, {record, [{atom, RecName}]} = Type, Info, Mps) ->
                    ?q(is_record(?s(Item),?s(erl_parse:abstract(RecName))))
            end,
     add_fun_def(Type, Def1, Mps1, GFun);
-gen_encode(QRec, {list, [InnerType]} = Type, Info, Mps) ->
-    {Fun, Mps1} = fetch_encode(QRec, type_ref(InnerType), Info, Mps),
-    QRec1 = gen_var(QRec),
-    Def = ?q(fun(?s(QRec1)) ->
-                     [?s(Fun(?q(X))) || X <- ?s(QRec1)]
-             end),
-    add_fun_def(Type, Def, Mps1);
+gen_encode(QRec, {list, [InnerType]}, Info, Mps) ->
+    code_list(QRec, InnerType, Info, Mps);
 
 gen_encode(QRec, {union, Types} = Type, Info, Mps) ->
-    {Def,Mps1} = encode_union(QRec, Types, Info, Mps),
+    {Def,Mps1} = code_union(QRec, Types, Info, Mps),
     add_fun_def(Type, Def, Mps1);
 
 gen_encode(_, {integer, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_integer(?s(Item)))
-           end,
-    encode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_integer), Mps);
 gen_encode(_, {binary, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_binary(?s(Item)))
-           end,
-    encode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_binary), Mps);
 gen_encode(_, {float, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_float(?s(Item)))
-           end,
-    encode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_float), Mps);
 gen_encode(_, {boolean, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_boolean(?s(Item)))
-           end,
-    encode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_boolean), Mps);
 gen_encode(_, {atom, []} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(Item) ->
@@ -173,12 +111,6 @@ gen_encode(_, {atom, []} = Type, _Info, Mps) ->
                    ?q(is_atom(?s(Item)))
            end,
     add_fun_def(Type, none, Mps, GFun, VFun);
-
-gen_encode(_, {any, []} = Type, _Info, Mps) ->
-    GFun = fun(_Item) ->
-                   ?q(true)
-           end,
-    encode_standard(Type, GFun, Mps);
 
 gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
@@ -197,15 +129,14 @@ gen_encode(_, {atom, Atom} = Type, _Info, Mps) ->
            end,
     add_fun_def(Type, none, Mps, GFun, VFun);
 
+gen_encode(_, {any, []} = Type, _Info, Mps) ->
+    GFun = fun(_Item) ->
+                   ?q(true)
+           end,
+    code_basic(Type, GFun, Mps);
 
-gen_encode(QRec, {_UserType, Args} = Type, Info, Mps) ->
-    Type1 =  meta:reify_type(Type, Info),
-    {_, Type2, []} = ground_type(Type1, Args),
-    TR = type_ref(Type2),
-    {Fun, Mps1} = fetch_encode(QRec, TR, Info, Mps),
-    VFun = fun(_) -> Fun end,
-    GFun = get_guard(TR, Mps1),
-    add_fun_def(Type, none, Mps1, GFun, VFun);
+gen_encode(QRec, {_UserType, _Args} = Type, Info, Mps) ->
+    code_underlying(QRec, Type, Info, Mps);
             
 gen_encode(_QRec, Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type_encode, Type).
@@ -222,16 +153,16 @@ encode_fields(QRec, Fields, Info, Mps) ->
     {lists:foldr(Cons, meta:quote([]), Es), Mps1}.
 
 encode_field(QRec, Ind, ?FIELD(Fn), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, {any, []}, Info, Mps);
+    encode_record(QRec, Ind, Fn, {any, []}, Info, Mps);
 encode_field(QRec, Ind, ?FIELD(Fn, _Def), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, {any, []}, Info, Mps);
+    encode_record(QRec, Ind, Fn, {any, []}, Info, Mps);
 encode_field(QRec, Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, type_ref(Type), Info, Mps);
+    encode_record(QRec, Ind, Fn, type_ref(Type), Info, Mps);
 encode_field(QRec, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
-    encode_typed(QRec, Ind, Fn, type_ref(Type), Info, Mps).
+    encode_record(QRec, Ind, Fn, type_ref(Type), Info, Mps).
 
-encode_typed(QRec, Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
-    {Fun, Mps1} = fetch_encode(QRec, Type, Info, Mps),
+encode_record(QRec, Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
+    {Fun, Mps1} = fetch(QRec, Type, Info, Mps),
     AFN = erl_parse:abstract(NC(Fn)),
     QInd = erl_parse:abstract(Ind),
     Def = ?q(fun(Acc) ->
@@ -245,68 +176,10 @@ encode_typed(QRec, Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
              end),
     {Def, Mps1}.
 
-encode_union(QRec, Types, Info, Mps) ->
-    {Cs,MpsN} =
-        lists:mapfoldl(
-          fun(TA, Mps1) ->
-                  Type = type_ref(TA),
-                  {VFun, Mps2} = fetch_encode(QRec, Type, Info, Mps1),
-                  QF = case get_guard(Type, Mps2) of
-                           none ->
-                               ?q(fun(V) ->
-                                          ?s(VFun(?q(V)))
-                                  end);
-                           GFun ->
-                               ?q(fun(V) when ?s(GFun(?q(V))) ->
-                                          ?s(VFun(?q(V)))
-                                  end)
-                       end,
-                  [C] = erl_syntax:fun_expr_clauses(QF),
-                  {C,Mps2}
-          end, Mps, Types),
-    Def = erl_syntax:revert(erl_syntax:fun_expr(Cs)),
-    {Def, MpsN}.
-
-encode_standard(Type, GFun, Mps) ->
-    VFun = fun(_) ->
-                   fun(Item) ->
-                           Item
-                   end
-           end,
-    add_fun_def(Type, none, Mps, GFun, VFun).
-
-    
 
 %%
 %% Decoding
 %%
-fetch_decode(QStr, Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps#mps.subs) of
-        none ->
-            As = meta:reify_attributes(decode, Info),
-            case proplists:lookup(Type, As) of
-                none ->
-                    case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, {Fun, _FN, _GFun, _Def}} ->
-                            {Fun, Mps};
-                        none ->
-                            gen_decode(QStr, Type, Info, Mps)
-                    end;
-                {Type, {_,Args} = SType} when is_list(Args) ->
-                    fetch_decode(QStr, SType, Info, Mps);
-                {Type, Fun} ->
-                    VFun = json_fun(Fun),
-                    add_fun_def(Type, none, Mps, none, VFun)
-            end;
-        {Type, {_,Args} = SType} when is_list(Args) ->
-            fetch_decode(QStr, SType, Info, Mps);
-        {Type, Fun} ->
-            VFun = json_fun(Fun),
-            add_fun_def(Type, none, Mps, none, VFun)
-    end.
-
-
-
 gen_decode(QStr, {record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {FTI, Mps1} = gen_field_to_integer(QStr, Fields, Info, Mps),
@@ -322,38 +195,21 @@ gen_decode(QStr, {record, [{atom, RecName}]} = Type, Info, Mps) ->
              end),
     add_fun_def(Type, Def, Mps1);    
 
-gen_decode(QStr, {list, [InnerType]} = Type, Info, Mps) ->
-    {Fun, Mps1} = fetch_decode(QStr, type_ref(InnerType), Info, Mps),
-    QXs = gen_var(QStr),
-    Def = ?q(fun(?s(QXs)) ->
-                     [?s(Fun(?q(X))) || X <- ?s(QXs)]
-             end),
-    add_fun_def(Type, Def, Mps1);
+gen_decode(QStr, {list, [InnerType]}, Info, Mps) ->
+    code_list(QStr, InnerType, Info, Mps);
 
 gen_decode(QRec, {union, Types} = Type, Info, Mps) ->
-    {Def,Mps1} = decode_union(QRec, Types, Info, Mps),
+    {Def,Mps1} = code_union(QRec, Types, Info, Mps),
     add_fun_def(Type, Def, Mps1);
 
 gen_decode(_, {integer, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_integer(?s(Item)))
-           end,
-    decode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_integer), Mps);
 gen_decode(_, {binary, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_binary(?s(Item)))
-           end,
-    decode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_binary), Mps);
 gen_decode(_, {float, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_float(?s(Item)))
-           end,
-    decode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_float), Mps);
 gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
-    GFun = fun(Item) ->
-                   ?q(is_boolean(?s(Item)))
-           end,
-    decode_standard(Type, GFun, Mps);
+    code_basic_pred(Type, ?q(is_boolean), Mps);
 gen_decode(_, {atom, []} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(Item) ->
@@ -387,16 +243,10 @@ gen_decode(_, {any, []} = Type, _Info, Mps) ->
     GFun = fun(_Item) ->
                    ?q(true)
            end,
-    decode_standard(Type, GFun, Mps);
+    code_basic(Type, GFun, Mps);
 
-gen_decode(QStr, {_UserType,Args} = Type, Info, Mps) ->
-    Type1 =  meta:reify_type(Type, Info),
-    {_, Type2, []} = ground_type(Type1, Args),
-    TR = type_ref(Type2),
-    {Fun, Mps1} = fetch_decode(QStr, TR, Info, Mps),
-    VFun = fun(_) -> Fun end,
-    GFun = get_guard(TR, Mps1),
-    add_fun_def(Type, none, Mps1, GFun, VFun);
+gen_decode(QStr, {_UserType,_Args} = Type, Info, Mps) ->
+    code_underlying(QStr, Type, Info, Mps);
     
 gen_decode(_, Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type_decode, Type).
@@ -439,7 +289,7 @@ decode_field(QStr, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
     decode_record(QStr, Ind, Fn, type_ref(Type), Info, Mps).
 
 decode_record(QStr, Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
-    {Fun, Mps1} = fetch_decode(QStr, Type, Info, Mps),
+    {Fun, Mps1} = fetch(QStr, Type, Info, Mps),
     QFn = erl_parse:abstract(NC(Fn)),
     QInd = erl_parse:abstract(Index),
     [Def] = erl_syntax:fun_expr_clauses(
@@ -448,12 +298,49 @@ decode_record(QStr, Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
                  end)),
     {Def, Mps1}. 
 
-decode_union(QStr, Types, Info, Mps) ->
-    {Cs,MpsN} =
+
+%%
+%% General decode/encode functions
+%%
+fetch(QPar, Type, Info, #mps{code_fun = CodeFun} = Mps) ->
+    case proplists:lookup(Type, Mps#mps.subs) of
+        none ->
+            Attrs = Mps#mps.attrs,
+            case proplists:lookup(Type, Attrs) of
+                none ->
+                    case proplists:lookup(Type, Mps#mps.defs) of
+                        {Type, {Fun, _FN, _GFun, _Def}} ->
+                            {Fun, Mps};
+                        none ->
+                            CodeFun(QPar, Type, Info, Mps)
+                    end;
+                {Type, {_,Args} = SType} when is_list(Args) ->
+                    fetch(QPar, SType, Info, Mps);
+                {Type, Fun} ->
+                    VFun = json_fun(Fun),
+                    add_fun_def(Type, none, Mps, none, VFun)
+            end;
+        {Type, {_,Args} = SType} when is_list(Args) ->
+            fetch(QPar, SType, Info, Mps);
+        {Type, Fun} ->
+            VFun = json_fun(Fun),
+            add_fun_def(Type, none, Mps, none, VFun)
+    end.
+
+code_list(QArg, InnerType, Info, Mps) -> 
+    {Fun, Mps1} = fetch(QArg, type_ref(InnerType), Info, Mps),
+    QXs = gen_var(QArg),
+    Def = ?q(fun(?s(QXs)) ->
+                     [?s(Fun(?q(X))) || X <- ?s(QXs)]
+             end),
+    add_fun_def({list, [InnerType]}, Def, Mps1).
+
+code_union(QArg, Types, Info, Mps) ->
+    {Cs, MpsN} =
         lists:mapfoldl(
           fun(TA, Mps1) ->
                   Type = type_ref(TA),
-                  {VFun, Mps2} = fetch_decode(QStr, Type, Info, Mps1),
+                  {VFun, Mps2} = fetch(QArg, Type, Info, Mps1),
                   QF = case get_guard(Type, Mps2) of
                            none ->
                                ?q(fun(V) ->
@@ -470,7 +357,28 @@ decode_union(QStr, Types, Info, Mps) ->
     Def = erl_syntax:revert(erl_syntax:fun_expr(Cs)),
     {Def, MpsN}.
 
-decode_standard(Type, GFun, Mps) ->
+code_underlying(QStr, {_, Args} = Type, Info, Mps) ->
+    Type1 =  meta:reify_type(Type, Info),
+    {_, Type2, []} = ground_type(Type1, Args),
+    TR = type_ref(Type2),
+    {Fun, Mps1} = fetch(QStr, TR, Info, Mps),
+    VFun = fun(_) -> Fun end,
+    GFun = get_guard(TR, Mps1),
+    add_fun_def(Type, none, Mps1, GFun, VFun).
+
+
+code_basic(Type, GFun, Mps) ->
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           Item
+                   end
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun).
+
+code_basic_pred(Type, QGuardFun, Mps) ->
+    GFun = fun(Item) ->
+                   ?q(?s(QGuardFun)(?s(Item)))
+           end,
     VFun = fun(_) ->
                    fun(Item) ->
                            Item
@@ -491,12 +399,6 @@ atom_to_mslist(Atom) when is_atom(Atom) ->
     Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
     lists:concat(Capitalized). 
 
-%% atom_to_binary(Atom) when is_atom(Atom) ->
-%%     atom_to_binary(Atom, utf8).
-
-%% binary_to_atom(Binary) when is_binary(Binary) ->
-%%     binary_to_existing_atom(Binary, utf8).
-
 %%
 %% Utils
 %%
@@ -506,6 +408,13 @@ type_ref({atom, _Ln, Atom}) ->
     {atom, Atom};
 type_ref(Converted) ->
     Converted.
+
+norm_type({{record, Name}, _Def, []}) ->
+    {record,[{atom,Name}]};
+norm_type({Name, _Def, Args}) ->
+    {Name, Args};
+norm_type({_Name, _Args} = Type) ->
+    Type.
 
 ground_type({Name, Def, Params}, Args) ->
     PAs = lists:zip(Params, Args),
