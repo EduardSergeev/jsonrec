@@ -23,24 +23,54 @@
          binary :: binary()}).
 
 
-decode(rec0, Struct) ->
-    ?decode_gen(#rec0{}, Struct).
+-type my_integer() :: integer().
 
-encode(#rec0{} = _Rec) ->
-    ok.
+-record(rec1,
+        {id :: my_integer(),
+         rec0 :: #rec0{}}).
+
+
+decode(rec0, Binary) ->
+    ?decode_gen(#rec0{}, Binary);
+decode(rec1, Binary) ->
+    ?decode_gen(#rec1{}, Binary).
+
+
 
 
 decode_test_() ->
     [{"Simple decode",
-      begin
-          Inp = <<"{
-                    \"Id\":42,
-                    \"Atom\" : \"status\",
-                    \"Binary\"   :\"Some string\"
-                   }">>,
-          ?_assertMatch(
-             {#rec0{id = 42, status = new,
-                    atom = status, binary = <<"Some string">>},
-              <<>>},
-             decode(rec0, Inp))
-      end}].
+      ?_test(
+         begin
+             Inp = <<"{
+                       \"Id\":42,
+                       \"Atom\" : \"status\",
+                       \"Binary\"   :\"Some string\"
+                      }">>,
+             ?assertMatch(
+                {#rec0{id = 42, status = new,
+                       atom = status, binary = <<"Some string">>},
+                 <<>>},
+                decode(rec0, Inp))
+         end)},
+    {"Nested record decode",
+     ?_test(
+        begin
+            Inp =
+                <<"{
+                    \"Id\":1,
+                    \"Rec0\": 
+                     {
+                      \"Id\":2,
+                      \"Status\"  : \"old\",
+                      \"Atom\" : \"status\",
+                      \"Binary\"   :\"\"
+                     }
+                  }">>,
+            ?assertMatch(
+               {#rec1{id = 1,
+                      rec0 = #rec0{id = 2, status = old,
+                                   atom = status, binary = <<>>}},
+                <<>>},
+               decode(rec1, Inp))
+        end)}].

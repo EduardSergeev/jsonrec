@@ -410,7 +410,8 @@ code_underlying(QStr, {_, Args} = Type, Info, Mps) ->
     {Fun, Mps1} = fetch(QStr, TR, Info, Mps),
     VFun = fun(_) -> Fun end,
     GFun = get_guard(TR, Mps1),
-    add_fun_def(Type, none, Mps1, GFun, VFun).
+    PFun = get_pattern(TR, Mps1),
+    add_fun_def(Type, none, Mps1, GFun, VFun, PFun).
 
 
 code_basic(Type, GFun, Mps) ->
