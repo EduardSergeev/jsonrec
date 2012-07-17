@@ -7,7 +7,8 @@
 
 -export([format_error/1]).
 
--export([integer/1, object/2]).
+-export([integer/1, string/1,
+         object/2]).
 
 -define(TYPE_METHODS_OPT, type_methods).
 -define(TYPE_SURROGATES_OPT, type_surrogates).
@@ -39,6 +40,13 @@
          code_fun,
          name_conv}).
 
+-record(def_funs,
+        {value,
+         fun_name,
+         guard,
+         pattern,
+         def}).
+
 %% -record(input,
 %%         {bin,
 %%          off,
@@ -67,8 +75,9 @@ code_gen(CodeFun, Attr, QArg, Type, Info, Options) ->
       code_fun = CodeFun,
       name_conv = NameFun},
     {Fun,Mps1} = CodeFun(QArg, type_ref(Type1), Info, Mps),
+    RDefs = lists:reverse(Mps1#mps.defs),
     Fs = [?q(?s(FN) = ?s(Def))
-          || {_,{_,FN,_GFun,_PFun,Def}} <- lists:reverse(Mps1#mps.defs),
+          || {_,#def_funs{fun_name = FN, def = Def}} <- RDefs,
              Def /= none],
     erl_syntax:block_expr(Fs ++ [Fun(QArg)]).
 
@@ -219,7 +228,17 @@ gen_decode(_, {integer, []} = Type, _Info, Mps) ->
     add_fun_def(Type, none, Mps, GFun, VFun, PFun);
 
 gen_decode(_, {binary, []} = Type, _Info, Mps) ->
-    code_basic_pred(Type, ?q(is_binary), Mps);
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           ?q(?MODULE:string(?s(Item)))
+                   end
+           end,
+    PFun = fun(Item) ->
+                   ?q(<<$",_/binary>> = ?s(Item))
+           end,
+    add_fun_def(Type, none, Mps, none, VFun, PFun);
+
+
 gen_decode(_, {float, []} = Type, _Info, Mps) ->
     code_basic_pred(Type, ?q(is_float), Mps);
 gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
@@ -227,41 +246,41 @@ gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
 gen_decode(_, {atom, []} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(Item) ->
-                           ?q(binary_to_existing_atom(?s(Item), utf8))
+                           ?q(begin
+                                  {Bin, Rest} = ?MODULE:string(?s(Item)),
+                                  {binary_to_existing_atom(Bin, utf8), Rest}
+                              end)
                    end
            end,
-    GFun = fun(Item) ->
-                   ?q(is_binary(?s(Item)))
+    PFun = fun(Item) ->
+                   ?q(<<$",_/binary>> = ?s(Item))
            end,
-    add_fun_def(Type, none, Mps, GFun, VFun);
+    add_fun_def(Type, none, Mps, none, VFun, PFun);
 
-%% gen_decode(_, {atom, undefined} = Type, _Info, Mps) ->
-%%     VFun = fun(_) ->
-%%                    fun(Item) ->
-%%                            ?q(binary_to_existing_atom(?s(Item), utf8))
-%%                    end
-%%            end,
-%%     PFun = fun(Item) ->
-%%                    ?q()
-%%            end,
-%%     add_fun_def(Type, none, Mps, none, VFun, Pat);
+gen_decode(_, {atom, undefined} = Type, _Info, Mps) ->
+    VFun = fun(_) ->
+                   fun(_Item) ->
+                           ?q({undefined, Rest})
+                   end
+           end,
+    PFun = fun(_Item) ->
+                   ?q(<<"null", Rest/binary>>)
+           end,
+    add_fun_def(Type, none, Mps, none, VFun, PFun);
 
 gen_decode(_, {atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(_Item) ->
-                           erl_parse:abstract(Atom)
+                           ?q({?s(erl_parse:abstract(Atom)), Rest})
                    end
            end,
-    Bin = atom_to_binary(Atom, utf8),
-    GFun = fun(Item) ->
-                   if
-                       Atom =:= undefined ->
-                           ?q(?s(Item) =:= undefined);
-                       true ->
-                           ?q(?s(Item) =:= ?s(erl_parse:abstract(Bin)))
-                   end
+    SAtom = format("\"~s\"", [Atom]),
+    QSAtom = erl_parse:abstract(SAtom),
+    PFun = fun(_Item) ->
+                   ?q(<<?s(QSAtom), Rest/binary>>)
            end,
-    add_fun_def(Type, none, Mps, GFun, VFun);
+
+    add_fun_def(Type, none, Mps, none, VFun, PFun);
 
 
 gen_decode(_, {any, []} = Type, _Info, Mps) ->
@@ -334,7 +353,7 @@ fetch(QPar, Type, Info, #mps{code_fun = CodeFun} = Mps) ->
             case proplists:lookup(Type, Attrs) of
                 none ->
                     case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, {Fun, _FN, _GFun, _Def}} ->
+                        {Type, #def_funs{value = Fun}} ->
                             {Fun, Mps};
                         none ->
                             CodeFun(QPar, Type, Info, Mps)
@@ -482,16 +501,23 @@ add_fun_def(Type, Def, #mps{defs = Defs} = Mps, GFun, VFun, PFun) ->
     FunName = list_to_atom("Fun" ++ integer_to_list(Ind)),
     QVFunName = erl_syntax:revert(erl_syntax:variable(FunName)),
     Fun = VFun(QVFunName),
-    Defs1 = [{Type,{Fun, QVFunName, GFun, PFun, Def}}|Defs],
+    FDef = #def_funs
+        {value = Fun,
+         fun_name = QVFunName,
+         guard = GFun,
+         pattern = PFun,
+         def = Def},
+    %% Defs1 = [{Type,{Fun, QVFunName, GFun, PFun, Def}}|Defs],
+    Defs1 = [{Type,FDef}|Defs],
     {Fun, Mps#mps{defs = Defs1}}.
 
 
 get_guard(Type, #mps{defs = Defs}) ->
-    {Type, {_Fun, _FN, GFun, _PFun, _Def}} = proplists:lookup(Type, Defs),
+    #def_funs{guard = GFun} = proplists:get_value(Type, Defs),
     GFun.
 
 get_pattern(Type, #mps{defs = Defs}) ->
-    {Type, {_Fun, _FN, _GFun, PFun, _Def}} = proplists:lookup(Type, Defs),
+    #def_funs{pattern = PFun} = proplists:get_value(Type, Defs),
     PFun.
    
 gen_var(QRec) ->
@@ -550,17 +576,21 @@ object(ValueParser, Inp) ->
     end.
     
 fields_iter(ValueParser, Inp, Rs) ->
-    {IV, Inp1} = pair(ValueParser, Inp),
-    Rs1 = [IV | Rs],
-    case skip_ws(Inp1) of
-        <<",", Inp2/binary>> ->
-            fields_iter(ValueParser, Inp2, Rs1);
-        <<"}", Rest/binary>> ->
-            {lists:reverse(Rs1), Rest};
-        <<U, _/binary>> ->
-            error({unexpected_input, <<U>>, {expected, [<<$,>>,<<$}>>]}});
-        <<>> ->
-            error(eof)
+    case pair(ValueParser, Inp) of
+        {IV, Inp1} ->
+            Rs1 = [IV | Rs],
+            case skip_ws(Inp1) of
+                <<",", Inp2/binary>> ->
+                    fields_iter(ValueParser, Inp2, Rs1);
+                <<"}", Rest/binary>> ->
+                    {lists:reverse(Rs1), Rest};
+                <<U, _/binary>> ->
+                    error({unexpected_input, <<U>>, {expected, [<<$,>>,<<$}>>]}});
+                <<>> ->
+                    error(eof)
+            end;
+        undefined ->
+            undefined
     end.
 
 pair(ValueParser, Inp) ->    
@@ -580,7 +610,7 @@ string(<<$", Inp1/binary>>) ->
     {Len, Rest} = string_iter(Inp1, 0),
     {binary:part(Inp1, 0, Len), Rest};
 string(<<U, _/binary>>) ->
-    error({unexpected_input, U, {expected, <<$">>}});
+    error({unexpected_input, <<U>>, {expected, <<$">>}});
 string(<<>>) ->
     error(eof).
             
@@ -609,6 +639,8 @@ integer_iter(Rest, I) ->
     {I, Rest}.
 
 
+
+
 %%
 %% Formats error messages for compiler 
 %%
@@ -618,4 +650,4 @@ format_error({unexpected_type_decode, Type}) ->
     format("Don't know how to decode type ~p", [Type]).
 
 format(Format, Args) ->
-    io_lib:format(Format, Args).
+    lists:flatten(io_lib:format(Format, Args)).
