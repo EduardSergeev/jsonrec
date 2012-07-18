@@ -7,7 +7,7 @@
 
 -export([format_error/1]).
 
--export([integer/1, string/1,
+-export([integer/1, string/1, boolean/1,
          object/2]).
 
 -define(TYPE_METHODS_OPT, type_methods).
@@ -237,12 +237,32 @@ gen_decode(_, {binary, []} = Type, _Info, Mps) ->
                    ?q(<<$",_/binary>> = ?s(Item))
            end,
     add_fun_def(Type, none, Mps, none, VFun, PFun);
-
-
 gen_decode(_, {float, []} = Type, _Info, Mps) ->
-    code_basic_pred(Type, ?q(is_float), Mps);
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           ?q(?MODULE:float(?s(Item)))
+                   end
+           end,
+    GFun = fun(_Item) ->
+                   ?q((C =:= $-) orelse (C >= $0 andalso C =< $9))
+           end,
+    PFun = fun(Item) ->
+                   ?q(<<C,_/binary>> = ?s(Item))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun, PFun);
 gen_decode(_, {boolean, []} = Type, _Info, Mps) ->
-    code_basic_pred(Type, ?q(is_boolean), Mps);
+    VFun = fun(_) ->
+                   fun(Item) ->
+                           ?q(?MODULE:boolean(?s(Item)))
+                   end
+           end,
+    GFun = fun(_Item) ->
+                   ?q((C =:= $t) orelse (C =:= $f))
+           end,
+    PFun = fun(Item) ->
+                   ?q(<<C,_/binary>> = ?s(Item))
+           end,
+    add_fun_def(Type, none, Mps, GFun, VFun, PFun);
 gen_decode(_, {atom, []} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(Item) ->
@@ -569,20 +589,20 @@ skip_ws(Rest) ->
 object(ValueParser, Inp) ->
     case skip_ws(Inp) of
         <<"{", Inp1/binary>> ->
-            fields_iter(ValueParser, Inp1, []);
+            member_iter(ValueParser, Inp1, []);
         <<U, _/binary>> ->
             error({unexpected_input, <<U>>, {expected, <<${>>}});
         <<>> ->
             error(eof)
     end.
     
-fields_iter(ValueParser, Inp, Rs) ->
+member_iter(ValueParser, Inp, Rs) ->
     case pair(ValueParser, Inp) of
         {IV, Inp1} ->
             Rs1 = [IV | Rs],
             case skip_ws(Inp1) of
                 <<",", Inp2/binary>> ->
-                    fields_iter(ValueParser, Inp2, Rs1);
+                    member_iter(ValueParser, Inp2, Rs1);
                 <<"}", Rest/binary>> ->
                     {lists:reverse(Rs1), Rest};
                 <<U, _/binary>> ->
@@ -599,7 +619,6 @@ pair(ValueParser, Inp) ->
     case skip_ws(Inp1) of
         <<$:, Inp2/binary>> ->
             {Index, {Value, Rest}} = ValueParser(Field, skip_ws(Inp2)),
-            true = is_binary(Rest),
             {{Index, Value}, Rest};
         <<U, _/binary>> ->
             error({unexpected_input, <<U>>, {expected, <<$:>>}});
@@ -639,6 +658,14 @@ integer_iter(<<D, Rest/binary>>, I) when (D >= $0) andalso (D =< $9) ->
 integer_iter(Rest, I) ->
     {I, Rest}.
 
+boolean(<<"true", Rest/binary>>) ->
+    {true, Rest};
+boolean(<<"false", Rest/binary>>) ->
+    {false, Rest};
+boolean(<<U, _/binary>>) ->
+    error({unexpected_input, <<U>>, {expected, [<<"true">>, <<"false">>]}});
+boolean(<<>>) ->
+    error(eof).
 
 
 

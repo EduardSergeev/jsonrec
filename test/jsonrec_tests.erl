@@ -20,7 +20,8 @@
         {id :: integer(),
          status = new :: status(),
          atom :: atom(),
-         binary :: binary()}).
+         binary :: binary(),
+         boolean :: boolean()}).
 
 
 -type my_integer() :: integer().
@@ -45,7 +46,8 @@ decode_test_() ->
              Inp = <<"{
                        \"Id\":42,
                        \"Atom\" : \"status\",
-                       \"Binary\"   :\"Some string\"
+                       \"Binary\"   :\"Some string\",
+                       \"Boolean\": true
                       }">>,
              ?assertMatch(
                 {#rec0{id = 42, status = new,
@@ -64,13 +66,14 @@ decode_test_() ->
                       \"Id\":2,
                       \"Status\"  : \"old\",
                       \"Atom\" : \"status\",
-                      \"Binary\"   :\"\"
+                      \"Binary\"   :\"\",
+                      \"Boolean\": false
                      }
                   }">>,
             ?assertMatch(
                {#rec1{id = 1,
-                      rec0 = #rec0{id = 2, status = old,
-                                   atom = status, binary = <<>>}},
+                      rec0 = #rec0{id = 2, status = old, atom = status,
+                                   boolean = false, binary = <<>>}},
                 <<>>},
                decode(rec1, Inp))
         end)}].
