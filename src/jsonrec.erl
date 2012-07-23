@@ -33,6 +33,14 @@
          ?FIELD(Name, Default),
          ?TYPE(_Type, _Args) = Type}).
 
+-define(RECORD_QUOTE(Name),
+        {record, _Ln, Name, _Args}).
+-define(TYPE_QUOTE(Name, Args),
+        {call, _Ln1, {atom, _Ln2, Name}, Args}).
+-define(LIST_QUOTE(Elem),
+        {cons, _Ln1, Elem, {lin, _Ln2}}).
+
+
 -record(mps,
         {defs = [],
          subs = [],
@@ -62,7 +70,7 @@ decode_gen(QStr, Type, Info, Options) ->
 
 
 code_gen(CodeFun, Attr, QArg, Type, Info, Options) ->
-    Type1 = norm_type(Type),
+    Type1 = norm_type_quote(Type),
     Subs = proplists:get_value(?TYPE_METHODS_OPT, Options, []),
     Subs1 = [norm_type(T) || T <- Subs],                      
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, Options,
@@ -469,6 +477,15 @@ atom_to_mslist(Atom) when is_atom(Atom) ->
 %%
 %% Utils
 %%
+norm_type_quote(?RECORD_QUOTE(Name)) ->
+    {record,[{atom,Name}]};
+norm_type_quote(?TYPE_QUOTE(Name, Args)) ->
+    Args1 = [norm_type_quote(A) || A <- Args],
+    {Name, Args1};
+norm_type_quote(?LIST_QUOTE(Elem)) ->
+    InnerType = norm_type_quote(Elem),
+    {list, InnerType}.
+
 type_ref({type, _Ln, Tag, Args}) ->
     {Tag, [type_ref(A) || A <- Args]};
 type_ref({atom, _Ln, Atom}) ->
@@ -496,7 +513,7 @@ ground_type({Name, Def, Params}, Args) ->
              (Smt) ->
                   Smt
           end,
-    Def1 = meta:map(Fun, Def),
+    Def1 = map(Fun, Def),
     {Name, Def1, []}.
 
 
@@ -643,9 +660,36 @@ string_iter(<<_, Rest/binary>>, Len) ->
 string_iter(<<>>, _) ->
     error(eof).
 
-integer(<<$-, Rest/binary>>) ->
-    {I, Rest1} = integer_iter(Rest, 0),
-    {-I, Rest1};
+
+
+
+%%
+%% Integer parser
+%%
+%% integer_raw(<<$-, Rest/binary>>) ->
+%%     integer_raw(Rest, 1);
+%% integer_raw(Inp) ->
+%%     integer_raw(Inp, 0).
+
+%% integer_raw(Inp, Start) when size(Inp) =< Start ->
+%%     error(eof);
+%% integer_raw(Inp, Start) ->
+%%     case integer_iter(Inp, Start) of
+%%         {0, _} ->
+%%             U = binary:at(Inp, Start),
+%%             error({unexpected_input, <<U>>, {expected, digit}});
+%%         {Length, Rest} ->
+%%             Part = binary:part(Inp, Start, Length),
+%%             {Part, Rest}
+%%     end.
+
+%% integer_raw_iter(<<D, Rest/binary>>, Length)
+%%   when (D >= $0) andalso (D =< $9) ->  
+%%     integer_raw_iter(Rest, Length+1);
+%% integer_raw_iter(Rest, Length) ->
+%%     {Length, Rest}.
+    
+    
 integer(<<D, Rest/binary>>) when (D >= $0) andalso (D =< $9) ->
     integer_iter(Rest, D - $0);
 integer(<<U, _/binary>>) ->
@@ -668,6 +712,9 @@ boolean(<<>>) ->
     error(eof).
 
 
+%%
+%% Skip-parsers
+%%
 
 %%
 %% Formats error messages for compiler 
@@ -679,3 +726,20 @@ format_error({unexpected_type_decode, Type}) ->
 
 format(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).
+
+%%
+%% Utils
+%%
+
+%%
+%% Depth-first map
+%%
+map(Fun, Form) when is_tuple(Form) ->
+    Fs = tuple_to_list(Form),
+    Fs1 = map(Fun, Fs),
+    Form1 = list_to_tuple(Fs1),
+    Fun(Form1);
+map(Fun, Fs) when is_list(Fs) ->
+    [map(Fun, F) || F <- Fs];
+map(Fun, Smt) ->
+    Fun(Smt).

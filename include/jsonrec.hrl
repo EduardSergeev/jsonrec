@@ -6,22 +6,14 @@
 
 
 -define(encode_gen(Type, Record, Options),
-        encode_gen(
-          meta:quote(Record),
-          meta:reify_type(Type),
-          meta:reify(),
-          Options)).
+        encode_gen(Record, Type, ?s(meta:reify()), ?s(Options))).
 
 -define(encode_gen(Type, Record),
         ?encode_gen(Type, Record, [])).
 
 
 -define(decode_gen(Type, Struct, Options),
-        decode_gen(
-          meta:quote(Struct),
-          meta:reify_type(Type),
-          meta:reify(),
-          Options)).
+        decode_gen(Struct, Type, ?s(meta:reify()), ?s(Options))).
 
 -define(decode_gen(Type, Struct),
         ?decode_gen(Type, Struct, [])).
