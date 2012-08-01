@@ -8,8 +8,9 @@
 %%%-------------------------------------------------------------------
 -module(jsonrec_parsers).
 
--export([integer/1, skip_integer/1]).
+%%-export([integer/1, skip_integer/1]).
 
+-compile(export_all).
 
 -record(input, {bin, pos}).
 
@@ -36,11 +37,89 @@
 
 
 
-integer(#input{bin = Bin, pos = Pos} = Inp) ->
-    #input{pos = Pos1} = Inp1 = skip_integer(Inp),
-    Bin1 = binary:part(Bin, 0, Pos1 - Pos),
-    Integer = list_to_integer(binary_to_list(Bin1)),
-    {Integer, Inp1}.
+%% integer(#input{bin = Bin, pos = Pos} = Inp) ->
+%%     #input{pos = Pos1} = Inp1 = skip_integer(Inp),
+%%     Bin1 = binary:part(Bin, 0, Pos1 - Pos),
+%%     Integer = list_to_integer(binary_to_list(Bin1)),
+%%     {Integer, Inp1}.
+
+singleton(V) ->
+    fun(#input{bin = <<C, Rest/binary>>, pos = Pos})
+          when C =:= V->
+            {ok, {0, #input{bin = Rest, pos = Pos + 1}}};
+       (_) ->
+            {error, {expected, <<$0>>}}
+    end.
+
+range(From, To) ->
+    fun(#input{bin = <<C, Rest/binary>>, pos = Pos})
+          when C >= From andalso C =< To ->
+            {ok, {C, #input{bin = Rest, pos = Pos + 1}}};
+       (_) ->
+            {error, {expected, <<$0>>}}
+    end.
+
+return(Value) ->
+    fun(Inp) ->
+            {ok, {Value, Inp}}
+    end.
+
+right(Left, Right) ->
+    fun(Inp) ->
+            case Left(Inp) of
+                {ok, {_, Inp1}} ->
+                    Right(Inp1);
+                {error, _} = E ->
+                    E
+            end
+    end.
+
+either(Left, Right) ->
+    fun(Inp) ->
+            case Left(Inp) of
+                {ok, _} = Ok ->
+                    Ok;
+                {error, _} ->
+                    Right(Inp)
+            end
+    end.
+
+option(Parser, Default) ->
+    fun(Inp) ->
+           case Parser(Inp) of
+               {ok, _} = Ok ->
+                   Ok;
+               {error, _} ->
+                   {ok, {Default, Inp}}
+           end
+    end.
+
+
+many(Parser) ->
+    fun(Inp) ->
+            many_iter(Parser, Inp, [])
+    end.
+
+many_iter(Parser, Inp, Acc) ->                
+    case Parser(Inp) of
+        {ok, {Value, Inp1}} ->
+            many_iter(Parser, Inp1, [Value|Acc]);
+        {error, _} ->
+            lists:reverse(Acc)
+    end.
+
+
+sign() ->
+%%    option(right(singleton($-), return(-1)), 1).
+    right(singleton($-), return(-1)).
+
+zero() ->
+    right(singleton($0), 0).
+
+integer() ->
+    option(sign(), 1)
+
+
 
 skip_integer(#input{bin = <<$-, Bin/binary>>, pos = Pos} = Inp) ->
     skip_positive(Inp#input{bin = Bin, pos = Pos + 1});
