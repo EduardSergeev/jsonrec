@@ -7,8 +7,10 @@
 -compile(export_all).
 
 -meta([do/1,
+       return/1,
        '>'/2,
        singleton/1,
+       many/1,
        oneof/1]).
 
 -record(input, {bin, pos}).
@@ -31,6 +33,8 @@ do({lc, _Ln, Res, Exprs}) ->
                ?s(expand(Exprs, QInp, 1, Res))
        end).
 
+expand([], QInp, _N, Res) ->
+    ?q({ok, {?s(Res), ?s(QInp)}});
 expand([{generate, _Ln, Pat, Expr} | Rs], QInp, N, Res) ->
     QInp1 = gen_inp(N),
     ?q(case ?s(Expr)(?s(QInp)) of
@@ -39,14 +43,6 @@ expand([{generate, _Ln, Pat, Expr} | Rs], QInp, N, Res) ->
            {error, _} = E ->
                E
        end);
-%% expand([{call, _Ln, _F, _A} = Expr | Rs], QInp, N, Res) ->
-%%     QInp1 = gen_inp(N),
-%%     ?q(case ?s(Expr)(?s(QInp)) of
-%%            {ok, {_, #input{} = ?s(QInp1)}} ->
-%%                ?s(expand(Rs, QInp1, N + 1, Res)); 
-%%            {error, _} = E ->
-%%                E
-%%        end);
 expand([Expr | Rs], QInp, N, Res) ->
     QInp1 = gen_inp(N),
     ?q(case ?s(Expr)(?s(QInp)) of
@@ -54,10 +50,7 @@ expand([Expr | Rs], QInp, N, Res) ->
                ?s(expand(Rs, QInp1, N + 1, Res)); 
            {error, _} = E ->
                E
-       end);
-expand([], QInp, _N, Res) ->
-    ?q({ok, {?s(Res), ?s(QInp)}}).
-
+       end).
     
 
 gen_inp(N) ->
@@ -111,10 +104,10 @@ to_list({nil, _}) ->
     [].
 
 
-return(Value) ->
-    fun(Inp) ->
-            {ok, {Value, Inp}}
-    end.
+return(QValue) ->
+    ?q(fun(Inp) ->
+               {ok, {?s(QValue), Inp}}
+       end).
 
 right(Left, Right) ->
     fun(Inp) ->
@@ -158,17 +151,20 @@ option(Parser, Default) ->
 
 
 many(Parser) ->
-    fun(Inp) ->
-            many_iter(Parser, Inp, [])
-    end.
+    ?q(fun(ManyInp) ->
+               Iter = ?s(many_iter(Parser)),
+               Iter(Iter, ManyInp, [])
+       end).
 
-many_iter(Parser, Inp, Acc) ->                
-    case Parser(Inp) of
-        {ok, {Value, Inp1}} ->
-            many_iter(Parser, Inp1, [Value|Acc]);
-        {error, _} ->
-            {ok, {lists:reverse(Acc), Inp}}
-    end.
+many_iter(Parser) ->
+    ?q(fun(Cont, ManyIterInp, Acc) ->
+               case ?s(Parser)(ManyIterInp) of
+                   {ok, {Value, ManyIterInp1}} ->
+                       Cont(Cont, ManyIterInp1, [Value|Acc]);
+                   {error, _} ->
+                       {ok, {lists:reverse(Acc), ManyIterInp}}
+               end
+       end).
 
 
 %%
@@ -197,7 +193,7 @@ sign() ->
     singleton($-) > return(-1).
 
 zero() ->
-    right(singleton($0), return(0)).
+    singleton($0) > return(0).
 
 natural() ->
     do([list_to_integer([D|Ds])
