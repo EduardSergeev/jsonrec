@@ -7,24 +7,11 @@
 -compile(export_all).
 
 -meta([do/1,
-       return/1,
+       'or'/2,
        '>'/2,
-       singleton/1,
-       many/1,
-       oneof/1]).
+       oneof/1, noneof/1]).
 
 -record(input, {bin, pos}).
-
-%% -define(REMOTE_CALL(Ln, Mod, Name, Args),
-%%         #call{line = Ln,
-%%               function = #remote
-%%               {module = #atom{name = Mod},
-%%                name = #atom{name = Name}},
-%%               args = Args}).
-%% -define(LOCAL_CALL(Ln, Name, Args),
-%%         #call{line = Ln,
-%%               function = #atom{name = Name},
-%%               args = Args}).
 
 
 do({lc, _Ln, Res, Exprs}) ->
@@ -70,19 +57,23 @@ get_bin() ->
     
 
 
-singleton(V) ->
-    ?q(fun(#input{bin = <<?s(V), Rest/binary>>, pos = Pos}) ->
-               {ok, {?s(V), #input{bin = Rest, pos = Pos + 1}}};
-          (_) ->
-               {error, {expected, <<?s(V)>>}}
-       end).
+singleton(C) ->
+    singleton(C, C).
+
+singleton(C,V) ->
+    fun(#input{bin = <<I, Rest/binary>>, pos = Pos})
+          when I =:= C->
+            {ok, {V, #input{bin = Rest, pos = Pos + 1}}};
+       (Inp) ->
+            {error, {{expected, <<C>>}, Inp}}
+    end.
 
 range(From, To) ->
     fun(#input{bin = <<C, Rest/binary>>, pos = Pos})
           when C >= From andalso C =< To ->
             {ok, {C, #input{bin = Rest, pos = Pos + 1}}};
-       (_) ->
-            {error, {expected, {<<From>>,<<To>>}}}
+       (Inp) ->
+            {error, {{expected, {<<From>>,<<To>>}}, Inp}}
     end.
 
 oneof(QCs) ->
@@ -92,22 +83,40 @@ oneof(QCs) ->
               end)
            || CQ <- CQs],
     QExp = erl_syntax:revert(erl_syntax:list([?q(<<?s(Q)>>) || Q <- CQs])),
-    QD = ?q(fun(_) ->
-                    {error, {expected, ?s(QExp)}}
+    QD = ?q(fun(Inp) ->
+                    {error, {{expected, ?s(QExp)}, Inp}}
             end),
     QFs1 = lists:flatmap(fun erl_syntax:fun_expr_clauses/1, QFs ++ [QD]),
     erl_syntax:revert(erl_syntax:fun_expr(QFs1)).
 
+noneof(QCs) ->
+    CQs = to_list(QCs),
+    QFs = [ ?q(fun(#input{bin = <<?s(CQ), _/binary>>} = Inp) ->
+                      {error, {{unexpected, ?s(CQ)}, Inp}}
+              end)
+           || CQ <- CQs],
+    QD = ?q(fun(#input{bin = <<C, Rest/binary>>, pos = Pos}) ->
+                    {ok, {C, #input{bin = Rest, pos = Pos + 1}}}
+            end),
+    QE = ?q(fun(#input{bin = <<>>} = Inp) ->
+                    {error, {eof, Inp}}
+            end),
+    QFs1 = lists:flatmap(fun erl_syntax:fun_expr_clauses/1, QFs ++ [QD,QE]),
+    erl_syntax:revert(erl_syntax:fun_expr(QFs1)).
+
+
+to_list({string, Ln, Ls}) ->
+    [{char, Ln, C} || C <- Ls];
 to_list({cons, _, QE, Cs}) ->
     [QE | to_list(Cs)];
 to_list({nil, _}) ->
     [].
 
 
-return(QValue) ->
-    ?q(fun(Inp) ->
-               {ok, {?s(QValue), Inp}}
-       end).
+return(Value) ->
+    fun(Inp) ->
+            {ok, {Value, Inp}}
+    end.
 
 right(Left, Right) ->
     fun(Inp) ->
@@ -139,6 +148,17 @@ either(Left, Right) ->
             end
     end.
 
+'or'(QLeft, QRight) ->
+    ?q(fun(Inp) ->
+               case ?s(QLeft)(Inp) of
+                   {ok, _} = Ok ->
+                       Ok;
+                   {error, _} ->
+                       ?s(QRight)(Inp)
+               end
+       end).
+    
+
 option(Parser, Default) ->
     fun(Inp) ->
            case Parser(Inp) of
@@ -151,32 +171,64 @@ option(Parser, Default) ->
 
 
 many(Parser) ->
-    ?q(fun(ManyInp) ->
-               Iter = ?s(many_iter(Parser)),
-               Iter(Iter, ManyInp, [])
-       end).
+    fun(Inp) ->
+            many_iter(Parser, Inp, [])
+    end.
 
-many_iter(Parser) ->
-    ?q(fun(Cont, ManyIterInp, Acc) ->
-               case ?s(Parser)(ManyIterInp) of
-                   {ok, {Value, ManyIterInp1}} ->
-                       Cont(Cont, ManyIterInp1, [Value|Acc]);
-                   {error, _} ->
-                       {ok, {lists:reverse(Acc), ManyIterInp}}
-               end
-       end).
-
+many_iter(Parser, Inp, Acc) ->                
+    case Parser(Inp) of
+        {ok, {Value, Inp1}} ->
+            many_iter(Parser, Inp1, [Value|Acc]);
+        {error, _} ->
+            {ok, {lists:reverse(Acc), Inp}}
+    end.
 
 %%
 %% JSON parsers
 %%
 
 aob() ->
-     oneof([$a,$b]).
+     oneof("ab").
 
-%% escape_char() ->
-%%     do([
-%%        singleton($\)])
+string() ->
+    do([binary:part(B, 0, F-S)
+        || singleton($"),
+           B <- get_bin(),
+           S <- get_pos(),
+           many(either(string_char(), escape_seq())),
+           F <- get_pos(),
+           singleton($")]).
+
+string_char() ->
+    noneof([$",$\\]).
+
+escape_char() ->
+    oneof("\"\\/bfnrt").
+    
+escape_seq() ->
+    do([ok
+        || singleton($\\),
+           escape_char()]).
+
+%% escape_to_char($") ->
+%%     $";
+%% escape_to_char($\\) ->
+%%     $\\;
+%% escape_to_char($/) ->
+%%     $/;
+%% escape_to_char($b) ->
+%%     $\b;
+%% escape_to_char($f) ->
+%%     $\f;
+%% escape_to_char($n) ->
+%%     $\n;
+%% escape_to_char($r) ->
+%%     $\r;
+%% escape_to_char($t) ->
+%%     $\t.
+
+
+
 
 %% string_char() ->
 %%     (singleton($2)) > natural().
@@ -201,11 +253,23 @@ natural() ->
            Ds <- many(range($0,$9))]).
 
 integer() ->    
-    either(
-      zero(),
-      do([S * N 
-          || S <- option(sign(), 1),
-             N <- natural()])).
+      either(zero(),
+            do([S * N 
+                || S <- option(sign(), 1),
+                   N <- natural()])).
+
+skip_integer() ->
+    do([ok ||
+           range($1, $9),
+           many(range($0,$9))]).
+
+integer_bin() ->
+    do([binary:part(B, 0, F-S)
+        || B <- get_bin(),
+           S <- get_pos(),
+           skip_integer(),
+           F <- get_pos()]).
+    
 
 float() ->
     do([list_to_float(W ++ [$.|F])
@@ -224,4 +288,6 @@ fractional_part() ->
     do([[D|Ds]
         || D <- range($0,$9),
            Ds <- many(range($0,$9))]).
+
+
         
