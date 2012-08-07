@@ -76,6 +76,7 @@ range(From, To) ->
             {error, {{expected, {<<From>>,<<To>>}}, Inp}}
     end.
 
+
 oneof(QCs) ->
     CQs = to_list(QCs),
     QFs = [ ?q(fun(#input{bin = <<?s(CQ), Rest/binary>>, pos = Pos}) ->
@@ -129,10 +130,10 @@ right(Left, Right) ->
     end.
 
 '>'(Left, Right) ->
-    ?q(fun(Inp) ->
-               case (?s(Left))(Inp) of
-                   {ok, {_, Inp1}} ->
-                       ?s(Right)(Inp1);
+    ?q(fun(Inpr) ->
+               case (?s(Left))(Inpr) of
+                   {ok, {_, Inpr1}} ->
+                       ?s(Right)(Inpr1);
                    {error, _} = E ->
                        E
                end
@@ -149,15 +150,14 @@ either(Left, Right) ->
     end.
 
 'or'(QLeft, QRight) ->
-    ?q(fun(Inp) ->
-               case ?s(QLeft)(Inp) of
+    ?q(fun(Inpo) ->
+               case ?s(QLeft)(Inpo) of
                    {ok, _} = Ok ->
                        Ok;
                    {error, _} ->
-                       ?s(QRight)(Inp)
+                       ?s(QRight)(Inpo)
                end
        end).
-    
 
 option(Parser, Default) ->
     fun(Inp) ->
@@ -183,20 +183,75 @@ many_iter(Parser, Inp, Acc) ->
             {ok, {lists:reverse(Acc), Inp}}
     end.
 
+skip_many(Parser) ->
+    fun(Inp) ->
+            skip_many_iter(Parser, Inp)
+    end.
+
+skip_many_iter(Parser, Inp) ->                
+    case Parser(Inp) of
+        {ok, {_, Inp1}} ->
+            skip_many_iter(Parser, Inp1);
+        {error, _} ->
+            {ok, {ok, Inp}}
+    end.
+    
+%% sep1_by(Parser, Sep) ->
+%%     fun(Inp) ->
+%%             case Parser(Inp) of
+%%                 {ok, {Value, Inp1}} ->
+                    
+%%             sep_by_iter(Parser, Sep, Inp, [])
+%%     end.
+
+%% sep_by_iter(Parser, Sep, Inp, Acc) ->
+%%     case Parser(Inp) of
+%%         {ok, {Value, Inp1}} ->
+%%             case Sep(Inp1) of
+%%                 {ok, {_, Inp2}} ->
+%%                     sep_by_iter(Parser, Sep, Inp2, [Value|Acc]);
+%%                 {error, _} ->
+%%                      {ok, {lists:reverse([Value|Acc]), Inp1}}
+%%             end;
+%%         {error, _} ->
+%%             {ok, {lists:reverse(Acc), Inp}}
+%%     end.
+
+sep_by(Parser, Sep) ->
+    sep_by_1(Parser, Sep) or return([]).
+
+sep_by_1(Parser, Sep) ->
+    do([[X|Xs]
+        || X <- Parser,
+           Xs <- many(Sep > Parser)]).
+
+t1(Parser, Sep) ->
+    Parser or Sep.
+
+t2(Parser, Sep) ->
+    Parser > (Parser or Sep).
+    
+
 %%
 %% JSON parsers
 %%
+whitespace() ->
+    oneof(" \t\n\r").
 
-aob() ->
-     oneof("ab").
+ws() ->
+    skip_many(whitespace()).
 
 string() ->
-    do([binary:part(B, 0, F-S)
-        || singleton($"),
-           B <- get_bin(),
+    do([binary:part(B, 1, F-S-2)
+        || B <- get_bin(),
            S <- get_pos(),
-           many(either(string_char(), escape_seq())),
-           F <- get_pos(),
+           skip_string(),
+           F <- get_pos()]).
+
+skip_string() ->
+    do([ok ||
+           singleton($"),
+           many(string_char() or escape_seq()),
            singleton($")]).
 
 string_char() ->
@@ -206,8 +261,8 @@ escape_char() ->
     oneof("\"\\/bfnrt").
     
 escape_seq() ->
-    do([ok
-        || singleton($\\),
+    do([ok ||
+           singleton($\\),
            escape_char()]).
 
 %% escape_to_char($") ->
@@ -227,19 +282,6 @@ escape_seq() ->
 %% escape_to_char($t) ->
 %%     $\t.
 
-
-
-
-%% string_char() ->
-%%     (singleton($2)) > natural().
-
-%% string() ->
-%%     do(
-%%      || singleton($"))
-
-
-%% test() ->
-%%      ?q(singleton($0)).
 
 sign() ->
     singleton($-) > return(-1).
@@ -269,8 +311,8 @@ integer_bin() ->
            S <- get_pos(),
            skip_integer(),
            F <- get_pos()]).
-    
 
+    
 float() ->
     do([list_to_float(W ++ [$.|F])
         || W <- whole_part(),
@@ -278,11 +320,10 @@ float() ->
            F <- fractional_part()]).
 
 whole_part() ->
-    either(
-      right(singleton($0), return("0")),
-      do([[D|Ds]
-          || D <- range($1,$9),
-             Ds <- many(range($0,$9))])).
+    (singleton($0) > return("0")) or
+        do([[D|Ds] ||
+               D <- range($1,$9),
+               Ds <- many(range($0,$9))]).
 
 fractional_part() ->
     do([[D|Ds]
@@ -290,4 +331,52 @@ fractional_part() ->
            Ds <- many(range($0,$9))]).
 
 
-        
+skip_float() ->
+    do([ok
+        || skip_whole(),
+           singleton($.),
+           skip_fractional()]).
+           
+skip_whole() ->        
+    either(singleton($0),
+           right(range($1,$9),skip_many(range($0,$9)))).
+
+skip_fractional() ->        
+    do([ok
+       || range($0,$9),
+          skip_many(range($0,$9))]).
+
+
+boolean() ->
+    fun(#input{bin = <<"true", Rest/binary>>, pos = Pos}) ->
+            {ok, {true, #input{bin = Rest, pos = Pos + 4}}};
+       (#input{bin = <<"false", Rest/binary>>, pos = Pos}) ->
+            {ok, {false, #input{bin = Rest, pos = Pos + 5}}};
+       (Inp) ->
+            {error, {{expected, [<<"true">>, <<"false">>]}, Inp}}
+    end.
+
+
+array(Parser) ->
+    do([Es ||
+           singleton($[),
+           ws(),
+           Es <- sep_by(Parser, array_elem_sep()),
+           ws(),
+           singleton($])]).
+
+array_elem_sep() ->
+    do([ok || ws(), singleton($,), ws()]).
+
+
+%% object() ->
+%%     do([ok ||
+%%            singleton(${),
+%%            ws(),
+%%            F <- string(),
+%%            ws(),
+%%            singleton]).
+
+%% pair() ->
+%%     do([{F,V} ||
+%%        singleton($)]).
