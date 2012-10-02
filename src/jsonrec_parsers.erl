@@ -117,7 +117,7 @@ zero() ->
     right(singleton($0), 0).
 
 integer() ->
-    option(sign(), 1)
+    option(sign(), 1).
 
 
 
