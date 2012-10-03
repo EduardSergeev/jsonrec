@@ -78,10 +78,8 @@ code_gen(CodeFun, Attr, QArg, Type, Info, Options) ->
     Fs = [?q(?s(FN) = ?s(Def))
           || {_,{_,FN,_GFun,Def}} <- lists:reverse(Mps1#mps.defs),
              Def /= none],
-    Re = ?q(?v(?re(erl_syntax:block_expr(?s(sequence(Fs))
-                                         ++ [?s(Fun(QArg))])))),
-    %% io:format("Re: ~p~n", [Re]),
-    Re.
+    ?v(?re(erl_syntax:block_expr(?s(sequence(Fs))
+                                 ++ [?s(Fun(QArg))]))).
 
 
 %%
@@ -91,7 +89,7 @@ gen_encode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {Def, Mps1} = encode_fields(Fields, Info, Mps),
     GFun = fun(Item) ->
-                   ?q(is_record(?s(Item),?s(?q(?v(?re(erl_parse:abstract(RecName)))))))
+                   ?q(is_record(?s(Item),?s(?v(?re(erl_parse:abstract(RecName))))))
            end,
     add_fun_def(Type, Def, Mps1, GFun);
 gen_encode({list, [InnerType]}, Info, Mps) ->
@@ -127,13 +125,13 @@ gen_encode({atom, Atom} = Type, _Info, Mps) ->
                                Atom =:= undefined ->
                                    ?q(undefined);
                                true ->
-                                   ?q(?v(?re(erl_parse:abstract(
-                                               atom_to_binary(Atom, utf8)))))
+                                   ?v(?re(erl_parse:abstract(
+                                            atom_to_binary(Atom, utf8))))
                            end
                    end
            end,
     GFun = fun(Item) ->
-                   ?q(?s(Item) =:= ?s(?q(?v(?re(erl_parse:abstract(Atom))))))
+                   ?q(?s(Item) =:= ?s(?v(?re(erl_parse:abstract(Atom)))))
            end,
     add_fun_def(Type, none, Mps, GFun, VFun);
 
@@ -178,8 +176,8 @@ encode_field(Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
 
 encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     {Fun, Mps1} = fetch(Type, Info, Mps),
-    AFN = ?q(?v(?re(erl_parse:abstract(NC(Fn))))),
-    QInd = ?q(?v(?re(erl_parse:abstract(Ind)))),
+    AFN = ?v(?re(erl_parse:abstract(NC(Fn)))),
+    QInd = ?v(?re(erl_parse:abstract(Ind))),
     DefFun = fun(QRec) ->
                      ?q(fun(Acc) ->
                                 V = element(?s(QInd), ?s(QRec)),
@@ -200,7 +198,7 @@ encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
 gen_decode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {FTI, Mps1} = gen_field_to_integer(Fields, Info, Mps),
-    Size = ?q(?v(?re(erl_parse:abstract(length(Fields) + 1)))),
+    Size = ?v(?re(erl_parse:abstract(length(Fields) + 1))),
     %% QFs = gen_var(QStr),
     Def = ?q(fun({struct, Struct}) ->
                      Fs1 = [?s(FTI)(F,V) || {F,V} <- Struct],
@@ -241,7 +239,7 @@ gen_decode({atom, []} = Type, _Info, Mps) ->
 gen_decode({atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
                    fun(_Item) ->
-                           ?q(?v(?re(erl_parse:abstract(Atom))))
+                           ?v(?re(erl_parse:abstract(Atom)))
                    end
            end,
     Bin = atom_to_binary(Atom, utf8),
@@ -250,7 +248,7 @@ gen_decode({atom, Atom} = Type, _Info, Mps) ->
                        Atom =:= undefined ->
                            ?q(?s(Item) =:= undefined);
                        true ->
-                           ?q(?s(Item) =:= ?s(?q(?v(?re(erl_parse:abstract(Bin))))))
+                           ?q(?s(Item) =:= ?s(?v(?re(erl_parse:abstract(Bin)))))
                    end
            end,
     add_fun_def(Type, none, Mps, GFun, VFun);
@@ -276,22 +274,22 @@ gen_field_to_integer(Types, Info, Mps) ->
                   fun({N,T},M) ->
                           decode_field(N, T, Info, M)
                   end, Mps, NTs),
-    QLast = ?q(?v(hd(erl_syntax:fun_expr_clauses(
-                       ?s(?q(fun(_,_) -> undefined end)))))),
+    QLast = ?v(hd(erl_syntax:fun_expr_clauses(
+                    ?s(?q(fun(_,_) -> undefined end))))),
     Es1 = Es ++ [QLast],
-    Ast = ?q(?v(?re(erl_syntax:fun_expr(?s(sequence(Es1)))))),
+    Ast = ?v(?re(erl_syntax:fun_expr(?s(sequence(Es1))))),
     {Ast, Mps1}.
 
 with_defaults(RecName, Types, Tail) ->
     NTs = lists:zip(lists:seq(2, length(Types)+1), Types),
-    Ds = [decode_default(N, ?q(?v(QDef)))
+    Ds = [decode_default(N, ?v(QDef))
           || {N, ?TYPED_FIELD(_, _, QDef)} <- NTs],
-    QName = ?q(?v(?re(erl_parse:abstract(RecName)))),
+    QName = ?v(?re(erl_parse:abstract(RecName))),
     Tag = ?q({1,?s(QName)}),
-    ?q(?v(?re(erl_syntax:list([?s(Tag)|?s(sequence(Ds))], ?s(Tail))))).
+    ?v(?re(erl_syntax:list([?s(Tag)|?s(sequence(Ds))], ?s(Tail)))).
 
 decode_default(Ind, QDef) ->
-    QInd = ?q(?v(?re(erl_parse:abstract(Ind)))),
+    QInd = ?v(?re(erl_parse:abstract(Ind))),
     ?q({?s(QInd), ?s(QDef)}).
 
 
@@ -306,12 +304,12 @@ decode_field(Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
 
 decode_record(Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     {Fun, Mps1} = fetch(Type, Info, Mps),
-    QFn = ?q(?v(?re(erl_parse:abstract(NC(Fn))))),
-    QInd = ?q(?v(?re(erl_parse:abstract(Index)))),
-    Def = ?q(?v(?re(hd(erl_syntax:fun_expr_clauses(
+    QFn = ?v(?re(erl_parse:abstract(NC(Fn)))),
+    QInd = ?v(?re(erl_parse:abstract(Index))),
+    Def = ?v(?re(hd(erl_syntax:fun_expr_clauses(
                          ?s(?q(fun(?s(QFn), V) ->
                                        {?s(QInd), ?s(Fun(?r(V)))}
-                               end))))))),
+                               end)))))),
     {Def, Mps1}. 
 
 
@@ -370,7 +368,7 @@ code_union(Types, Info, Mps) ->
                   [C] = erl_syntax:fun_expr_clauses(?e(QF)),
                   {C,Mps2}
           end, Mps, Types),
-    Def = ?q(?v(?re(erl_syntax:fun_expr(Cs)))),
+    Def = ?v(?re(erl_syntax:fun_expr(Cs))),
     {Def, MpsN}.
 
 code_underlying({_, Args} = Type, Info, Mps) ->
@@ -474,7 +472,7 @@ add_fun_def(Type, Def, Mps, GFun) ->
 add_fun_def(Type, Def, #mps{defs = Defs} = Mps, GFun, VFun) ->
     Ind = length(Defs),
     FunName = list_to_atom("Fun" ++ integer_to_list(Ind)),
-    QVFunName = ?q(?v(?re(erl_syntax:variable(FunName)))),
+    QVFunName = ?v(?re(erl_syntax:variable(FunName))),
     Fun = VFun(QVFunName),
     Defs1 = [{Type,{Fun,QVFunName,GFun,Def}}|Defs],
     {Fun, Mps#mps{defs = Defs1}}.
@@ -488,15 +486,15 @@ get_guard(Type, #mps{defs = Defs}) ->
 json_fun({Mod,Fun}) ->
     fun(_) ->
             fun(Item) -> 
-                    QM = ?q(?v(?re(erl_parse:abstract(Mod)))),
-                    QF = ?q(?v(?re(erl_parse:abstract(Fun)))),
+                    QM = ?v(?re(erl_parse:abstract(Mod))),
+                    QF = ?v(?re(erl_parse:abstract(Fun))),
                     ?q(?s(QM):?s(QF)(?s(Item)))
             end
     end;
 json_fun(LocalFun) ->
     fun(_) ->
             fun(Item) -> 
-                    QF = ?q(?v(?re(erl_parse:abstract(LocalFun)))),
+                    QF = ?v(?re(erl_parse:abstract(LocalFun))),
                     ?q(?s(QF)(?s(Item)))
             end
     end.
@@ -526,6 +524,6 @@ map(Fun, Smt) ->
     Fun(Smt).
 
 sequence([]) ->
-    ?q(?v([]));
+    ?v([]);
 sequence([Q|Qs]) ->
-    ?q(?v([?s(Q)|?s(sequence(Qs))])).
+    ?v([?s(Q)|?s(sequence(Qs))]).

@@ -14,6 +14,9 @@
 
 -record(input, {bin, pos}).
 
+-define(re(Syntax), erl_syntax:revert(Syntax)).
+
+
 %% -define(v(Expr), fun(Vs) -> {Expr, Vs} end).
 %% -define(e(Quote), element(1,(Quote)(gb_sets:new()))).
 
@@ -33,32 +36,27 @@
 do(QLC) ->
     {lc, _Ln, Res, Exprs} = ?e(QLC),
     ?q(fun(Inp) ->
-               ?s(expand(Exprs, ?r(Inp), ?q(?v(Res))))
+               ?s(expand(Exprs, ?r(Inp), ?v(Res)))
        end).
 
 
 expand([], QInp, Res) ->
     ?q({ok, {?s(Res), ?s(QInp)}});
 expand([{generate, _Ln, Pat, Expr} | Rs], QInp, Res) ->
-    ?q(case ?s(?q(?v(Expr)))(?s(QInp)) of
-           {ok, {?s(?q(?v(Pat))), #input{} = Inp}} ->
+    ?q(case ?s(?v(Expr))(?s(QInp)) of
+           {ok, {?s(?v(Pat)), #input{} = Inp}} ->
                ?s(expand(Rs, ?r(Inp), Res)); 
            {error, _} = E ->
                E
        end);
 expand([Expr | Rs], QInp, Res) ->
-    ?q(case ?s(?q(?v(Expr)))(?s(QInp)) of
+    ?q(case ?s(?v(Expr))(?s(QInp)) of
            {ok, {_, #input{} = Inp}} ->
                ?s(expand(Rs, ?r(Inp), Res)); 
            {error, _} = E ->
                E
        end).
 
-
-%% gen_inp(N) ->
-%%     VarName = "Inp" ++ integer_to_list(N),
-%%     AVar = list_to_atom(VarName),
-%%     erl_syntax:revert(erl_syntax:variable(AVar)).
 
 get_pos() ->
     fun(#input{pos = Pos} = Inp) ->
@@ -94,41 +92,41 @@ range(From, To) ->
 
 oneof(QCs) ->
     CQs = to_list(?e(QCs)),
-    QFs = [ ?e(?q(fun(#input{bin = <<?s(?q(?v(CQ))), Rest/binary>>, pos = Pos}) ->
-                      {ok, {?s(?q(?v(CQ))), #input{bin = Rest, pos = Pos + 1}}}
-              end))
+    QFs = [ ?q(fun(#input{bin = <<?s(CQ), Rest/binary>>, pos = Pos}) ->
+                      {ok, {?s(CQ), #input{bin = Rest, pos = Pos + 1}}}
+               end)
            || CQ <- CQs],
-    QExp = erl_syntax:revert(erl_syntax:list([?e(?q(<<?s(?q(?v(Q)))>>)) || Q <- CQs])),
-    QD = ?e(?q(fun(Inp) ->
-                    {error, {{expected, ?s(?q(?v(QExp)))}, Inp}}
-               end)),
-    QFs1 = lists:flatmap(fun erl_syntax:fun_expr_clauses/1, QFs ++ [QD]),
-    ?q(?v(erl_syntax:revert(erl_syntax:fun_expr(QFs1)))).
+    QCQs = sequence([?q(<<?s(Q)>>) || Q <- CQs]),
+    QExp = ?v(?re(erl_syntax:list(?s(QCQs)))),
+    QD = ?q(fun(Inp) ->
+                    {error, {{expected, ?s(QExp)}, Inp}}
+            end),
+    QFs1 = ?v(lists:flatmap(fun erl_syntax:fun_expr_clauses/1,
+                               ?s(sequence(QFs ++ [QD])))),
+    ?v(?re(erl_syntax:fun_expr(?s(QFs1)))).
 
-%% oneof(QCs) ->
-%%     CQs = to_list(?e(QCs)),
-    
-
-%% noneof(QCs) ->
-%%     CQs = to_list(QCs),
-%%     QFs = [ ?q(fun(#input{bin = <<?s(CQ), _/binary>>} = Inp) ->
-%%                       {error, {{unexpected, ?s(CQ)}, Inp}}
-%%               end)
-%%            || CQ <- CQs],
-%%     QD = ?q(fun(#input{bin = <<C, Rest/binary>>, pos = Pos}) ->
-%%                     {ok, {C, #input{bin = Rest, pos = Pos + 1}}}
-%%             end),
-%%     QE = ?q(fun(#input{bin = <<>>} = Inp) ->
-%%                     {error, {eof, Inp}}
-%%             end),
-%%     QFs1 = lists:flatmap(fun erl_syntax:fun_expr_clauses/1, QFs ++ [QD,QE]),
-%%     erl_syntax:revert(erl_syntax:fun_expr(QFs1)).
+noneof(QCs) ->
+    CQs = to_list(?e(QCs)),
+    QFs = [ ?q(fun(#input{bin = <<?s(CQ), _/binary>>} = Inp) ->
+                      {error, {{unexpected, ?s(CQ)}, Inp}}
+              end)
+           || CQ <- CQs],
+    QD = ?q(fun(#input{bin = <<C, Rest/binary>>, pos = Pos}) ->
+                    {ok, {C, #input{bin = Rest, pos = Pos + 1}}}
+            end),
+    QE = ?q(fun(#input{bin = <<>>} = Inp) ->
+                    {error, {eof, Inp}}
+            end),
+    QFs1 = ?v(lists:flatmap(
+                fun erl_syntax:fun_expr_clauses/1,
+                ?s(sequence(QFs ++ [QD,QE])))),
+    ?v(?re(erl_syntax:fun_expr(?s(QFs1)))).
 
 
 to_list({string, Ln, Ls}) ->
-    [{char, Ln, C} || C <- Ls];
+    [?v({char, Ln, C}) || C <- Ls];
 to_list({cons, _, QE, Cs}) ->
-    [QE | to_list(Cs)];
+    [?v(QE) | to_list(Cs)];
 to_list({nil, _}) ->
     [].
 
@@ -264,11 +262,11 @@ skip_many_iter(Parser, Inp) ->
 %% %%         || X <- Parser,
 %% %%            Xs <- many(Sep > Parser)]).
 
-%% t1(Parser, Sep) ->
-%%     ?r(Parser) or ?r(Sep).
+t1(Parser, Sep) ->
+    ?r(Parser) or ?r(Sep).
 
-%% t2(Parser, Sep) ->
-%%     Parser > (Parser or Sep).
+t2(Parser, Sep) ->
+    ?r(Parser) > (?r(Parser) or ?r(Sep)).
 
 %% t3(P1, P2) ->    
 %%     ?s(tg(?qv(P1), ?qv(?s(tg(?qv(P1), ?qv(P2)))))).
@@ -298,16 +296,16 @@ ws() ->
 %%            many(string_char() or escape_seq()),
 %%            singleton($")]).
 
-%% string_char() ->
-%%     noneof([$",$\\]).
+string_char() ->
+    noneof([$",$\\]).
 
-%% escape_char() ->
-%%     oneof("\"\\/bfnrt").
+escape_char() ->
+    oneof("\"\\/bfnrt").
     
-%% escape_seq() ->
-%%     do([ok ||
-%%            singleton($\\),
-%%            escape_char()]).
+escape_seq() ->
+    do([ok ||
+           singleton($\\),
+           escape_char()]).
 
 
 %% sign() ->
@@ -424,3 +422,9 @@ test2() ->
 %%     do2(?qv([{A,B} ||
 %%                 A <- some:func1(),
 %%                 B <- some:func2()])).
+
+
+sequence([]) ->
+    ?v([]);
+sequence([Q|Qs]) ->
+    ?v([?s(Q)|?s(sequence(Qs))]).
