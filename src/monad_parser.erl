@@ -10,34 +10,42 @@
        'or'/2,
        '>'/2,
        tg2/2,
-       oneof/1, noneof/1]).
+       oneof/1, noneof/1,
+       sep1_by/2]).
 
 -record(input, {bin, pos}).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
 
-%% -define(v(Expr), fun(Vs) -> {Expr, Vs} end).
-%% -define(e(Quote), element(1,(Quote)(gb_sets:new()))).
 
-
-%% do({quote, _, {lc, _Ln, Res, Exprs}}) ->
+%% do(QLC) ->
+%%     {lc, _Ln, Res, Exprs} = ?e(QLC),
 %%     ?q(fun(Inp) ->
-%%                ?s(expand(Exprs, ?q(Inp), 1, Res))
-%%        end).
-
-%% %% {[ fun(Inp) -> {[fun(Inp) -> {Inp} ] } ]}
-
-%% do2({quote, _, {lc, _Ln, Res, Exprs}}) ->
-%%     ?q(fun(Inp) ->
-%%                ?s(expand(Exprs, ?r(Inp), 1, Res))
+%%                ?s(expand(Exprs, ?r(Inp), ?v(Res)))
 %%        end).
 
 do(QLC) ->
-    {lc, _Ln, Res, Exprs} = ?e(QLC),
     ?q(fun(Inp) ->
-               ?s(expand(Exprs, ?r(Inp), ?v(Res)))
+               ?s(fun({lc, _Ln, Res, Exprs}) ->
+                          expand(Exprs, ?r(Inp), ?v(Res))
+                  end(?i(QLC)))
        end).
+
+do_int(QLC) ->
+    ?q(fun(Inp) ->
+               ?s(fun({lc, _Ln, Res, Exprs}) ->
+                          expand(Exprs, ?r(Inp), ?v(Res))
+                  end(?i(QLC)))
+       end).
+
+%% do2(QLC) ->
+%%     ?q(fun(Inp) ->
+%%                ?s(expand(get_expr(?r(QLC)), ?r(Inp), ?v(get_res(?r(QLC)))))
+%%        end).
+
+%% get_expr(Q) ->
+    
 
 
 expand([], QInp, Res) ->
@@ -136,19 +144,19 @@ return(Value) ->
             {ok, {Value, Inp}}
     end.
 
-%% right(Left, Right) ->
-%%     fun(Inp) ->
-%%             case Left(Inp) of
-%%                 {ok, {_, Inp1}} ->
-%%                     Right(Inp1);
-%%                 {error, _} = E ->
-%%                     E
-%%             end
-%%     end.
+right(Left, Right) ->
+    fun(Inp) ->
+            case Left(Inp) of
+                {ok, {_, Inp1}} ->
+                    Right(Inp1);
+                {error, _} = E ->
+                    E
+            end
+    end.
 
 '>'(Left, Right) ->
     ?q(fun(Inp) ->
-               case (?s(Left))(Inp) of
+               case ?s(Left)(Inp) of
                    {ok, {_, Inp1}} ->
                        ?s(Right)(Inp1);
                    {error, _} = E ->
@@ -156,15 +164,15 @@ return(Value) ->
                end
        end).
 
-%% either(Left, Right) ->
-%%     fun(Inp) ->
-%%             case Left(Inp) of
-%%                 {ok, _} = Ok ->
-%%                     Ok;
-%%                 {error, _} ->
-%%                     Right(Inp)
-%%             end
-%%     end.
+either(Left, Right) ->
+    fun(Inp) ->
+            case Left(Inp) of
+                {ok, _} = Ok ->
+                    Ok;
+                {error, _} ->
+                    Right(Inp)
+            end
+    end.
 
 'or'(QLeft, QRight) ->
     ?q(fun(Inp) ->
@@ -196,15 +204,15 @@ return(Value) ->
 %%                end
 %%        end).
 
-%% option(Parser, Default) ->
-%%     fun(Inp) ->
-%%            case Parser(Inp) of
-%%                {ok, _} = Ok ->
-%%                    Ok;
-%%                {error, _} ->
-%%                    {ok, {Default, Inp}}
-%%            end
-%%     end.
+option(Parser, Default) ->
+    fun(Inp) ->
+           case Parser(Inp) of
+               {ok, _} = Ok ->
+                   Ok;
+               {error, _} ->
+                   {ok, {Default, Inp}}
+           end
+    end.
 
 
 many(Parser) ->
@@ -232,6 +240,16 @@ skip_many_iter(Parser, Inp) ->
         {error, _} ->
             {ok, {ok, Inp}}
     end.
+
+sep1_by(Parser, Sep) ->
+    do_int([ [X|Xs] ||
+               X <- Parser,
+               %% Xs <- many(Sep > Parser) ]).
+               Xs <- many(right(?s(Sep), ?s(Parser))) ]).
+
+%% sep_by(P, S) ->
+%%     either(sep1_by(?r(P), ?r(S)),return([])).
+
     
 %% %% %% sep1_by(Parser, Sep) ->
 %% %% %%     fun(Inp) ->
@@ -314,10 +332,26 @@ escape_seq() ->
 %% zero() ->
 %%     singleton($0) > return(0).
 
-%% natural() ->
-%%     do([list_to_integer([D|Ds])
-%%         || D <- range($1,$9),
-%%            Ds <- many(range($0,$9))]).
+positive() ->
+    do([list_to_integer([D|Ds])
+        || D <- range($1,$9),
+           Ds <- many(range($0,$9))]).
+
+zero() ->
+    singleton($0) > return(0).
+
+integer() ->
+    do([ I ||
+           S <- option(singleton($-), undefined),
+           I <- case S of
+                    $- ->
+                        do([ -P || P <- positive() ]);
+                    _ ->
+                        zero() or positive()
+                end ]).
+
+int_list() ->
+    sep_by(integer(), whitespace()).
 
 %% integer() ->    
 %%       either(zero(),
@@ -418,10 +452,13 @@ test() ->
 test2() ->
     test0() or test().
 
-%% test2() ->
-%%     do2(?qv([{A,B} ||
-%%                 A <- some:func1(),
-%%                 B <- some:func2()])).
+test3() ->
+    do([{A,B,C} ||
+           A <- some:func1(),
+           {B,C} <- do([D || D <- some:func2() ])]).
+
+test4(Fun) ->
+    ?s(do_int(?q([ A || A <- ?s(?r(Fun))() ]))).
 
 
 sequence([]) ->
