@@ -305,32 +305,11 @@ digit1_9() ->
 digit0() ->
     match(?q($0)).
 
-%% positive() ->
-%%     bind(digit1_9(),
-%%          fun(QD) ->
-%%                  bind(many(digit()),
-%%                       fun(QDs) ->
-%%                               return(?q([?s(QD)|?s(QDs)]))
-%%                       end)
-%%          end).
-
 positive(Acc) ->
     bind(digit1_9(),
          fun(QD) ->
                  many_acc(digit(), ?q([?s(QD)|?s(Acc)]))
          end).
-
-%% int() ->
-%%     bind(
-%%       option(
-%%         bind(match(?q($-)), fun(_) -> return(?q([$-])) end),
-%%         ?q([])),
-%%       fun(QS) ->
-%%               bind(mplus(positive(),
-%%                          bind(digit0(),
-%%                               fun(_) -> return(?q([$0])) end)),
-%%                    fun(QN) -> return(?q(?s(QS) ++ ?s(QN))) end)
-%%       end).
 
 int(Acc) ->
     bind(
@@ -343,18 +322,6 @@ int(Acc) ->
                          fun(_) -> return(?q([$0|?s(Acc1)])) end))
       end).
 
-%% frac() ->
-%%     bind(match(?q($.)),
-%%          fun(_) ->
-%%                  bind(digit(),
-%%                       fun(QD) ->
-%%                               bind(many(digit()),
-%%                                    fun(QDs) ->
-%%                                            return(?q([$.,?s(QD)|?s(QDs)]))
-%%                                    end)
-%%                       end)
-%%          end).
-
 frac(Acc) ->
     bind(match(?q($.)),
          fun(_) ->
@@ -364,18 +331,6 @@ frac(Acc) ->
                       end)
          end).
 
-%% exp() ->    
-%%     bind(e(),
-%%          fun(E) ->
-%%                  bind(digit(),
-%%                       fun(D) ->
-%%                               bind(many(digit()),
-%%                                    fun(Ds) ->
-%%                                            return(?q(?s(E) ++ [?s(D)|?s(Ds)]))
-%%                                    end)
-%%                       end)
-%%          end).
-
 exp(Acc) ->    
     bind(e(Acc),
          fun(Acc1) ->
@@ -384,17 +339,6 @@ exp(Acc) ->
                               many_acc(digit(), ?q([?s(D)|?s(Acc1)]))
                       end)
          end).
-
-%% e() ->
-%%     bind(matches([?q($e),?q($E)]),
-%%          fun(_) ->
-%%                  option(
-%%                    bind(matches([?q($-),?q($+)]),
-%%                         fun(S) ->
-%%                                 return(?q([$E,?s(S)]))
-%%                         end),
-%%                    ?q([$E]))
-%%          end).
 
 e(Acc) ->
     bind(matches([?q($e),?q($E)]),
@@ -406,27 +350,6 @@ e(Acc) ->
                         end),
                    ?q([$E|?s(Acc)]))
          end).
-    
-%% float_digits() ->
-%%     bind(int(),
-%%          fun(IDs) ->
-%%                  bind(
-%%                    mplus(
-%%                      bind(exp(),
-%%                           fun(E) ->
-%%                                   return(?q([$.,$0|?s(E)]))
-%%                           end),
-%%                      bind(frac(),
-%%                           fun(FDs) ->
-%%                                   bind(option(exp(), ?q([])),
-%%                                        fun(E) ->
-%%                                                return(?q(?s(FDs) ++ ?s(E)))
-%%                                        end) 
-%%                           end)),
-%%                    fun(FDs) ->
-%%                            return(?q(?s(IDs) ++ ?s(FDs)))
-%%                    end)
-%%          end).
 
 float_digits(Acc) ->
     bind(int(Acc),
@@ -438,13 +361,6 @@ float_digits(Acc) ->
                    end)
          end).
 
-
-%% integer() ->
-%%     bind(int(),
-%%          fun(QDs) ->
-%%                  return(?q(list_to_integer(?s(QDs))))
-%%          end).
-
 integer() ->
     bind(int(?q([])),
          fun(QDs) ->
@@ -452,28 +368,12 @@ integer() ->
                              lists:reverse(?s(QDs)))))
          end).
 
-
-%% float() ->
-%%     bind(float_digits(),
-%%          fun(QDs) ->
-%%                  return(?q(list_to_float(?s(QDs))))
-%%          end).
-
 float() ->
     bind(float_digits(?q([])),
          fun(QDs) ->
                  return(?q(list_to_float(
                              lists:reverse(?s(QDs)))))
          end).
-    
-%% int_list() ->
-%%     many(bind(integer(),
-%%               fun(P) ->
-%%                       bind(many(match(?q($ ))),
-%%                            fun(_) ->
-%%                                    return(P)
-%%                            end)
-%%               end)).
 
 int_list() ->
     many(bind(integer(),
@@ -484,15 +384,6 @@ int_list() ->
                            end)
               end)).
 
-%% float_list() ->
-%%     many(bind(float(),
-%%               fun(P) ->
-%%                       bind(many(match(?q($ ))),
-%%                            fun(_) ->
-%%                                    return(P)
-%%                            end)
-%%               end)).
-
 float_list() ->
     many(bind(float(),
               fun(P) ->
@@ -501,7 +392,6 @@ float_list() ->
                                    return(P)
                            end)
               end)).
-
 
 %%
 %% Insts
