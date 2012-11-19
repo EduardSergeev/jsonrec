@@ -4,10 +4,7 @@
 
 -compile(export_all).
 
-%%-record(input, {bin, pos}).
-
-%%-type quote() :: fun((any()) -> any()).
-%%-type parser(A) :: fun((quote(), fun()) -> )
+-define(re(Syntax), erl_syntax:revert(Syntax)).
 
 return(QVal) ->
     fun(_QBin, QPos, Success, _Failure) ->  
@@ -25,14 +22,58 @@ bind(Parser, Fun) ->
                    Failure)
     end.
 
+%% mplus(Left, Right) ->
+%%     fun(QBin, QPos, Success, Failure) ->
+%%             Left(QBin,
+%%                  QPos,
+%%                  Success,
+%%                  fun(_Err, _QPos1) ->
+%%                          Right(QBin, QPos, Success, Failure)
+%%                  end)
+%%     end.
+
+%% mplus(Left, Right) ->
+%%     fun(QBin, QPos, Success, Failure) ->
+%%             ?q(begin
+%%                    Fun = fun(Val, Pos) ->
+%%                                  ?s(Success(?r(Val), ?r(Pos)))
+%%                          end,
+%%                    ?s(Left(QBin,
+%%                            QPos,
+%%                            fun(QVal1, QPos1) ->
+%%                                    ?q(?s(?r(Fun))(?s(QVal1), ?s(QPos1)))
+%%                            end,
+%%                            fun(_QErr1, _QPos1) ->
+%%                                    Right(QBin,
+%%                                          QPos,
+%%                                          fun(QVal2, QPos2) ->
+%%                                                  ?q(?s(?r(Fun))(?s(QVal2), ?s(QPos2)))
+%%                                          end,
+%%                                          Failure)
+%%                            end))
+%%                end)
+%%     end.
+
 mplus(Left, Right) ->
     fun(QBin, QPos, Success, Failure) ->
-            Left(QBin,
-                 QPos,
-                 Success,
-                 fun(_Err, _QPos1) ->
-                         Right(QBin, QPos, Success, Failure)
-                 end)
+            ?q(case ?s(Left(QBin,
+                            QPos,
+                            fun(QVal1, QPos1) ->
+                                    ?q({ok, {?s(QVal1), ?s(QPos1)}})
+                            end,
+                            fun(_QErr1, _QPos1) ->
+                                    Right(QBin,
+                                          QPos,
+                                          fun(QVal2, QPos2) ->
+                                                  ?q({ok, {?s(QVal2), ?s(QPos2)}})
+                                          end,
+                                          Failure)
+                            end)) of
+                   {ok, {Val, Pos}} ->
+                       ?s(Success(?r(Val), ?r(Pos)));
+                   Err ->
+                       Err
+               end)
     end.
     
 
@@ -47,19 +88,6 @@ to_parser(Parser) ->
                                  ?q({error, {?s(QError), ?s(QPos)}})
                          end))
        end).
-
-%% inst_body(QBin, Parser) ->
-%%     ?q(begin
-%%            Pos = 0,
-%%            ?s(Parser(QBin,
-%%                      ?r(Pos),
-%%                      fun(QVal, QPos1) ->
-%%                              ?q({ok, {?s(QVal), ?s(QPos1)}})
-%%                      end,
-%%                      fun(QError, QPos1) ->
-%%                              ?q({error, {?s(QError), ?s(QPos1)}})
-%%                      end))
-%%        end).
 
 inst_body(QBin, Parser) ->
     Parser(QBin,
@@ -81,6 +109,34 @@ match(QC) ->
                        ?s(Success(QC, ?r(Pos)));
                    _ ->
                        ?s(Failure(?q({expected, <<?s(QC)>>}), QPos))
+               end)
+    end.
+
+matches(QCs) when is_list(QCs) ->
+    fun(QBin, QPos, Success, Failure) ->
+            QFs = [ ?q(fun(<<_:?s(QPos)/binary, ?s(QC), _/binary>>) ->
+                               {ok, ?s(QC)}
+                       end)
+                    || QC <- QCs ],
+            %% QCQs = sequence([?q(<<?s(Q)>>) || Q <- CQs]),
+            %% QExp = ?v(?re(erl_syntax:list(?s(QCQs)))),
+            QD = ?q(fun(_) ->
+                            error
+                    end),
+            %% QFs1 = ?v(lists:flatmap(fun erl_syntax:fun_expr_clauses/1,
+            %%                         ?s(sequence(QFs ++ [QD])))),
+            Fun = fun(Arg, Qs) ->
+                          Cs = lists:flatmap(
+                                 fun erl_syntax:fun_expr_clauses/1,
+                                 Qs),            
+                          ?v(?re(erl_syntax:case_expr(Arg, Cs)))
+                  end,
+            ?q(case ?s(Fun(?i(QBin), ?i(sequence(QFs ++ [QD])))) of
+                   {ok, Val} ->
+                       Pos = ?s(QPos) + 1,
+                       ?s(Success(?r(Val), ?r(Pos)));
+                   error ->
+                       ?s(Failure(?q(unexpected), QPos))
                end)
     end.
 
@@ -150,6 +206,11 @@ fold_iter(Parser, Pos, Fun, Acc) ->
             {Acc, Pos}
     end.
 
+option(Parser, Default) ->
+    mplus(Parser, return(Default)).
+
+
+
 %%
 %% Tests
 %%
@@ -208,6 +269,13 @@ test9(Inp) ->
     ?s(inst_body(?r(Inp),
                  mplus(match(?q($1)),
                        match(?q($2))))).
+
+test10(Inp) ->
+    ?s(inst_body(?r(Inp),
+                 matches([?q($1),?q($2)]))).
+
+test11() ->
+    sequence([?q(A),?q(2)]).
               
 positive() ->
     bind(guard(fun(QC) ->
@@ -247,8 +315,11 @@ zero() ->
               return(?q(0))   
          end).
 
-%% p_zero(Inp) ->
-%%     ?s(inst_body(?r(Inp), zero())).
+natural() ->
+    mplus(zero(), positive()).
+
+p_zero(Inp) ->
+    ?s(inst_body(?r(Inp), zero())).
 
 %% integ() ->
 %%     bind(mplus(match(?q($-)),
@@ -265,13 +336,23 @@ zero() ->
 %%                     end)
 %%          end).
 
+%% integ() ->
+%%     mplus(bind(match(?q($-)),
+%%                fun(_) ->
+%%                        bind(positive(),
+%%                             fun(P) -> return(?q(-?s(P))) end)
+%%                end),
+%%           mplus(zero(), positive())).
+
 integ() ->
-    mplus(bind(match(?q($-)),
-               fun(_) ->
-                       bind(positive(),
-                            fun(P) -> return(?q(-?s(P))) end)
-               end),
-          mplus(zero(), positive())).
+    bind(
+      option(
+        bind(match(?q($-)), fun(_) -> return(?q(-1)) end),
+        ?q(1)),
+      fun(QS) ->
+              bind(natural(),
+                   fun(QN) -> return(?q(?s(QS) * ?s(QN))) end)
+      end).
 
 integ(Inp) ->
     ?s(inst_body(?r(Inp),
@@ -294,3 +375,9 @@ int_list(Inp) ->
 
 %% pos_parser(Inp) ->
 %%     ?s(inst_body(?r(Inp), pos_list())).
+
+
+sequence([]) ->
+    ?v([]);
+sequence([Q|Qs]) ->
+    ?v([?s(Q)|?s(sequence(Qs))]).
