@@ -241,11 +241,11 @@ skip_many_iter(Parser, Inp) ->
             {ok, {ok, Inp}}
     end.
 
-sep1_by(Parser, Sep) ->
-    do_int([ [X|Xs] ||
-               X <- Parser,
-               %% Xs <- many(Sep > Parser) ]).
-               Xs <- many(right(?s(Sep), ?s(Parser))) ]).
+%% sep1_by(Parser, Sep) ->
+%%     do_int([ [X|Xs] ||
+%%                X <- Parser,
+%%                %% Xs <- many(Sep > Parser) ]).
+%%                Xs <- many(right(?s(Sep), ?s(Parser))) ]).
 
 %% sep_by(P, S) ->
 %%     either(sep1_by(?r(P), ?r(S)),return([])).
@@ -350,8 +350,8 @@ integer() ->
                         zero() or positive()
                 end ]).
 
-int_list() ->
-    sep_by(integer(), whitespace()).
+%% int_list() ->
+%%     sep_by(integer(), whitespace()).
 
 %% integer() ->    
 %%       either(zero(),
