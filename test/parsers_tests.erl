@@ -20,6 +20,33 @@ bind_test() ->
         end,
     ?assertMatch({ok, {43, 0}}, P(<<"Garbage">>)).
 
+get_pos_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     bind(
+                       get_pos(),
+                       fun(P0) ->
+                               bind(
+                                 many(match(?q($1))),
+                                 fun(_) ->
+                                         bind(
+                                           get_pos(),
+                                           fun(P1) ->
+                                                   return(?q({?s(P0),?s(P1)}))
+                                           end)
+                                 end)
+                       end)))
+        end,
+    [?_assertMatch({ok, {{0,0}, 0}}, P(<<>>)),
+     ?_assertMatch({ok, {{0,0}, 0}}, P(<<"Rest">>)),
+     ?_assertMatch({ok, {{0,1}, 1}}, P(<<"1Rest">>)),
+     ?_assertMatch({ok, {{0,3}, 3}}, P(<<"111Rest">>)),
+     ?_assertMatch({ok, {{0,1}, 1}}, P(<<"1">>))
+    ].
+               
+    
+
 match_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(?r(Inp),
@@ -110,6 +137,21 @@ mplus_test_() ->
      {"Failure",
       ?_assertMatch({error, {_, 0}}, P(<<"Rest">>))}].
 
+skip_while_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     skip_while(
+                      fun(QC) ->
+                              ?q(?s(QC) =/= $1)
+                      end)))
+        end,
+    [?_assertMatch({ok, {_, 0}}, P(<<>>)),
+     ?_assertMatch({ok, {_, 0}}, P(<<"1">>)),
+     ?_assertMatch({ok, {_, 2}}, P(<<"221Rest">>))].
+    
+
+
 integer_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(?r(Inp), parsers:integer()))
@@ -177,7 +219,7 @@ float_list(Inp) ->
 float_list_test() ->
     ?assertMatch(
        {ok, {[42.0, 42.0, 4.2E14, 4.2E-11], _}},
-       float_list(<<"42.0, 42 ,  42E13 ,42.0e-12  ">>)). 
+       float_list(<<"42.0, 42 ,  42E13  ,42.0e-12  ">>)). 
 
 %%
 %% Parser result _asser generator

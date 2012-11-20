@@ -3,15 +3,19 @@
 -include_lib("meta/include/meta.hrl").
 
 %%-compile(export_all).
--export([return/1, bind/2,
+-export([return/1, bind/2, fail/1,
          mplus/2,
-         match/1, matches/1, guard/1,
+         get_pos/0,
+         match/1, matches/1,
+         guard/1,
          fold/3, fold_iter/4,
          many_acc/2, many_acc_iter/3,
          many/1, many_iter/3,
+         skip_while/1,
          option/2,
 
          integer/0, float/0,
+         %% string/0,
 
          inst_body/2]).
 
@@ -35,6 +39,12 @@ bind(Parser, Fun) ->
                    end,
                    Failure)
     end.
+
+fail(QErr) ->
+    fun(_QBin, QPos, _Success, Failure) ->  
+            Failure(QErr, QPos)
+    end.
+    
 
 %%
 %% Our parser builder is also MonadPlus
@@ -66,6 +76,26 @@ mplus(Left, Right) ->
 %% Primitive parser combinators
 %%
 
+get_pos() ->
+    fun(_QBin, QPos, Success, _Failure) ->
+            Success(QPos, QPos)
+    end.
+            
+
+%% match(QCs) when is_list(QCs) ->
+%%     Pat = fun(Cs) ->
+%%                   Fs = [ erl_syntax:binary_field(B, Ts) || {B,Ts} <- Cs],
+%%                   ?v(?re(erl_syntax:binary(Fs)))
+%%           end,
+%%     fun(QBin, QPos, Success, Failure) ->
+%%             ?q(case ?s(QBin) of
+%%                    <<_:?s(QPos)/binary, ?s(QC), _/binary>> ->
+%%                        Pos = ?s(QPos) + 1,
+%%                        ?s(Success(QC, ?r(Pos)));
+%%                    _ ->
+%%                        ?s(Failure(?q({expected, <<?s(QC)>>}), QPos))
+%%                end)
+%%     end;
 match(QC) ->
     fun(QBin, QPos, Success, Failure) ->
             ?q(case ?s(QBin) of
@@ -77,7 +107,7 @@ match(QC) ->
                end)
     end.
 
-matches(QCs) when is_list(QCs) ->
+matches(QCs) ->
     fun(QBin, QPos, Success, Failure) ->
             QFs = [ ?q(fun(<<_:?s(QPos)/binary, ?s(QC), _/binary>>) ->
                                {ok, ?s(QC)}
@@ -192,6 +222,24 @@ many_acc_iter(Parser, Pos, Acc) ->
             {Acc, Pos}
     end.
 
+skip_while(QGuardFun) ->
+    fun(QBin, QPos, Success, _) ->
+            ?q(begin
+                   SkipWhileIter =
+                       fun(Pos, Next) ->
+                               case ?s(QBin) of
+                                   <<_:Pos/binary, C, _/binary>>
+                                     when ?s(QGuardFun(?r(C))) ->
+                                       Next(Pos + 1, Next);
+                                   _ ->
+                                       Pos
+                               end
+                       end,
+                   Pos1 = SkipWhileIter(?s(QPos), SkipWhileIter),
+                   ?s(Success(?r(Pos1), ?r(Pos1)))
+               end)
+    end.
+    
 
 
 option(Parser, Default) ->
@@ -307,3 +355,40 @@ float() ->
                              lists:reverse(?s(QDs)))))
          end).
 
+
+%% string() ->
+%%     bind(match($"),
+%%          fun(_) ->
+%%                  bind(many(substring()),
+%%                       fun(Ss) ->
+%%                               bind(match($"),
+%%                                    fun(_) ->
+%%                                            return(?q(list_to_binary(Ss)))
+%%                                    end)
+%%                       end)
+%%          end).
+
+%% substring_p(Acc) ->
+%%     mplus(bind(match(?q($")),
+%%                fun(_) ->
+%%                        fail(?q($"))
+%%                        %% return(?q(list_to_binary(lists:reverse(?s(Acc)))))
+%%                end),
+%%           mplus(bind(match(?q($\\))
+%%                      fun(_) ->
+%%                              escape()
+%%                      end),
+                
+%% substring(Bin, Pos, Acc) ->          
+%%     ?s((substring_p(?r(Acc)))(
+%%          ?r(Bin),
+%%          ?r(Pos),
+%%          fun(QAcc, QPos1) ->
+%%                  ?q(substring(Bin, ?s(QPos), ?s(QAcc)))
+%%          end,
+%%          fun(QError, QPos1) ->
+%%                  ?q({error, {?s(QError), ?s(QPos1)}})
+%%          end).
+    
+
+    
