@@ -3,6 +3,8 @@
 -include("../src/parsers.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-compile([{nowarn_unused_function, [thousands/0]}]).
+
 return_test() ->
     P = fun(_Inp) ->
                 ?s(inst_body(?r(_Inp),
@@ -149,7 +151,48 @@ skip_while_test_() ->
     [?_assertMatch({ok, {_, 0}}, P(<<>>)),
      ?_assertMatch({ok, {_, 0}}, P(<<"1">>)),
      ?_assertMatch({ok, {_, 2}}, P(<<"221Rest">>))].
-    
+
+skip_many_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     skip_many(match(?q($1)))))
+        end,
+    [?_assertMatch({ok, {_, 0}}, P(<<>>)),
+     ?_assertMatch({ok, {_, 1}}, P(<<"1">>)),
+     ?_assertMatch({ok, {_, 3}}, P(<<"111Rest">>))].
+
+thousands() ->
+    bind(match(?q($1)),
+         fun(_) ->
+                 many(match(?q($0)))
+         end).
+
+skip_many_longer_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     skip_many(thousands())))
+        end,
+    [?_assertMatch({ok, {_, 0}}, P(<<>>)),
+     ?_assertMatch({ok, {_, 5}}, P(<<"10100Rest">>)),
+     ?_assertMatch({ok, {_, 3}}, P(<<"111Rest">>))].
+
+many_skip_many_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     many(
+                       bind(match(?q($1)),
+                            fun(_) ->
+                                    skip_many1(
+                                      match(?q($0)))
+                            end))))
+        end,
+    [?_assertMatch({ok, {_, 0}}, P(<<>>)),
+     ?_assertMatch({ok, {_, 2}}, P(<<"10Rest">>)),
+     ?_assertMatch({ok, {_, 5}}, P(<<"10100Rest">>))].
+
 
 
 integer_test_() ->
@@ -220,6 +263,23 @@ float_list_test() ->
     ?assertMatch(
        {ok, {[42.0, 42.0, 4.2E14, 4.2E-11], _}},
        float_list(<<"42.0, 42 ,  42E13  ,42.0e-12  ">>)). 
+
+object_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     parsers:object(
+                       [{?q("F1"), lift(?q(parsers:float_p)), ?q(1)},
+                        {?q("F2"), lift(?q(parsers:string_p)), ?q(2)},
+                        {?q("F3"), lift(?q(parsers:integer_p)), ?q(3)}])))
+        end,
+    [?_assertMatch({ok, {[], _}}, P(<<"{}">>)),
+     ?_assertMatch({ok, {[{1,42.23},{2,<<"str">>},{3,6543}], _}},
+                   P(<<"{\"F1\":42.23, \"F2\" : \"str\"  , \"F3\" :6543}">>)),
+     ?_assertMatch({ok, {[{2,<<"str">>},{3,6543}], _}},
+                   P(<<"{ \"F2\" : \"str\",\n\r \"F3\" :6543\n\t,\t}">>)),
+     ?_assertMatch({error, _},
+                   P(<<"{\"F1\":42.23, \"F2\" : }">>))].
 
 %%
 %% Parser result _asser generator
