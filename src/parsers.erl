@@ -18,14 +18,17 @@
          option/2,
 
          whitespace/0,
-         nullable/1,
+         null/0, nullable/1,
          boolean/0, integer/0, float/0, string/0,
          array/1,
          object/1,
 
-         integer_p/2, float_p/2, string_p/2,
+         ws_p/2, null_p/2,
+         boolean_p/2, integer_p/2, float_p/2, string_p/2,
 
-         inst_body/2]).
+         inst_body/2, inst_body/3,
+
+         sequence/1]).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
@@ -346,6 +349,13 @@ whitespace() ->
     matches([?q($\s), ?q($\t), ?q($\r), ?q($\n)]).
 
 
+null() ->
+    right(match(?q("null")), return(?q(undefined))).
+
+null_p(Bin, Pos) ->
+    ?s(inst_body(null(), ?r(Bin), ?r(Pos))).
+
+
 nullable(Parser) ->
     mplus(
       right(match(?q("null")), return(?q(undefined))),
@@ -356,6 +366,10 @@ boolean() ->
     mplus(
       right(match(?q("true")), return(?q(true))),
       right(match(?q("false")), return(?q(false)))).
+
+boolean_p(Bin, Pos) ->
+    ?s(inst_body(boolean(), ?r(Bin), ?r(Pos))).
+
 
 digit() ->
     guard(fun(QC) ->
@@ -514,7 +528,12 @@ escape() ->
          end).
 
 ws() ->
-    skip_many(whitespace()).
+    lift(?q(?MODULE:ws_p)).
+
+ws_p(Bin, Pos) ->
+    ?s(inst_body(skip_many(whitespace()),
+                 ?r(Bin), ?r(Pos))).
+
 
 comma_delim() ->
     right(ws(),
