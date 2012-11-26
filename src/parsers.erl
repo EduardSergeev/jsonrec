@@ -5,6 +5,7 @@
 %%-compile(export_all).
 -export([return/1, bind/2, fail/1,
          mplus/2,
+         left/2, right/2,
          get_pos/0, get_bin/0,
          lift/1,
          match/1, matches/1,
@@ -19,6 +20,7 @@
          whitespace/0,
          nullable/1,
          boolean/0, integer/0, float/0, string/0,
+         array/1,
          object/1,
 
          integer_p/2, float_p/2, string_p/2,
@@ -514,6 +516,19 @@ escape() ->
 ws() ->
     skip_many(whitespace()).
 
+comma_delim() ->
+    right(ws(),
+          left(option(match(?q($,)), ?q(no_comma)),
+               ws())).
+
+
+array(P) ->
+    left(
+      right(
+        left(match(?q($[)), ws()),
+        many(left(P, comma_delim()))),
+      match(?q($]))).
+
 
 object(FPNs) ->
     bind(
@@ -524,18 +539,12 @@ object(FPNs) ->
                 bind(
                   many(
                     left(object_field(FPNs),
-                         object_field_delim())),
+                         comma_delim())),
                   fun(Fs) ->
                           right(match(?q($})),
                                 return(Fs))
                   end))
       end).
-
-object_field_delim() ->
-    right(ws(),
-          left(option(match(?q($,)), ?q(no_comma)),
-               ws())).
-
 
 p_matches(SPs) ->
     fun(QBin, QPos, Success, Failure) ->

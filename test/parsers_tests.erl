@@ -261,6 +261,53 @@ float_test_() ->
              {{error, 0}, P(<<"">>)},
              {{error, 0}, P(<<".E0">>)}] ].
 
+array_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(?r(Inp),
+                             parsers:array(
+                               parsers:nullable(
+                                parsers:float()))))
+        end,
+    [ gen_assert(E,PVal) ||
+        {E,PVal} <-
+            [{{ok,{[], 2}}, P(<<"[]">>)},
+             {{ok,{[42.0], 4}}, P(<<"[42]">>)},
+             {{ok,{[1.0 ,2.0 ,3.0 , 4.0], 14}}, P(<<"[1,2, 3  \n,4\t]">>)},
+             {{ok,{[1.0, 2.0], 10}}, P(<<"[1.0,2.0,]">>)},
+             {{ok,{[1.0, undefined, 2.0], 16}}, P(<<"[1.0, null, 2.0]">>)},
+             {{error, 6}, P(<<"[1, 2,">>)},
+             {{error, 6}, P(<<"[1.0, \"aa\",]">>)}] ].
+
+array_bind_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(?r(Inp),
+                             right(
+                               parsers:array(
+                                 parsers:nullable(
+                                   parsers:string())),
+                               parsers:integer())))
+        end,
+    [ gen_assert(E,PVal) ||
+        {E,PVal} <-
+            [{{ok,{42, 4}}, P(<<"[]42">>)},
+             {{ok,{42, 8}}, P(<<"[\"aa\"]42">>)},
+             {{error, 1}, P(<<"[1.0]42">>)}] ].
+
+array_mplus_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(?r(Inp),
+                             mplus(
+                               parsers:array(
+                                 parsers:nullable(
+                                   parsers:string())),
+                               parsers:integer())))
+        end,
+    [ gen_assert(E,PVal) ||
+        {E,PVal} <-
+            [{{ok,{[], 2}}, P(<<"[]">>)},
+             {{ok,{42, 2}}, P(<<"42">>)},
+             {{error, 0}, P(<<"[">>)}] ].
+
 
 float_list(Inp) ->
     ?s(inst_body(
