@@ -273,7 +273,7 @@ array_test_() ->
             [{{ok,{[], 2}}, P(<<"[]">>)},
              {{ok,{[42.0], 4}}, P(<<"[42]">>)},
              {{ok,{[1.0 ,2.0 ,3.0 , 4.0], 14}}, P(<<"[1,2, 3  \n,4\t]">>)},
-             {{ok,{[1.0, 2.0], 10}}, P(<<"[1.0,2.0,]">>)},
+             {{ok,{[1.0, 2.0], 11}}, P(<<"[ 1.0,2.0,]">>)},
              {{ok,{[1.0, undefined, 2.0], 16}}, P(<<"[1.0, null, 2.0]">>)},
              {{error, 6}, P(<<"[1, 2,">>)},
              {{error, 6}, P(<<"[1.0, \"aa\",]">>)}] ].
@@ -309,28 +309,15 @@ array_mplus_test_() ->
              {{error, 0}, P(<<"[">>)}] ].
 
 
-float_list(Inp) ->
+float_array(Inp) ->
     ?s(inst_body(
          ?r(Inp),
-         many(bind(parsers:float(),
-                   fun(P) ->
-                           bind(many(match(?q($ ))),
-                                fun(_) ->
-                                        bind(option(match(?q($,)),
-                                                    ?q(undefined)),
-                                             fun(_) ->
-                                                     bind(many(match(?q($ ))),
-                                                          fun(_) ->
-                                                                  return(P)
-                                                          end)
-                                             end)
-                                end)
-                   end)))).
+         parsers:array(parsers:float()))).
 
 float_list_test() ->
     ?assertMatch(
        {ok, {[42.0, 42.0, 4.2E14, 4.2E-11], _}},
-       float_list(<<"42.0, 42 ,  42E13  ,42.0e-12  ">>)). 
+       float_array(<<"[42.0, 42 ,  42E13  ,42.0e-12  ]">>)). 
 
 object_test_() ->
     P = fun(Inp) ->
@@ -354,10 +341,37 @@ object_test_() ->
      ?_assertMatch({ok, {[{4, undefined}], _}},
                    P(<<"{\"F4\" : null}">>))].
 
-%%
-%% Parser instance
-%%
-    
+neted_object_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(
+                     ?r(Inp),
+                     parsers:object(
+                       [{?q("F1"), lift(?q(parsers:float_p)), ?q(1)},
+                        {?q("F2"), lift(?q(parsers:string_p)), ?q(2)},
+                        {?q("F3"), parsers:object(
+                                     [{?q("F31"),
+                                       lift(?q(parsers:integer_p)),
+                                       ?q(1)},
+                                      {?q("F32"),
+                                       lift(?q(parsers:string_p)),
+                                       ?q(2)}]), ?q(3)},
+                         {?q("F4"), parsers:array(
+                                     parsers:object(
+                                      [{?q("F41"),
+                                        lift(?q(parsers:float_p)),
+                                        ?q(1)}])), ?q(4)}])))
+        end,
+    [?_assertMatch({ok, {[], _}}, P(<<"{}">>)),
+     ?_assertMatch({ok,
+                    {[{1, 1.0},
+                      {2, <<"2">>},
+                      {3, [{1, 31},{2, <<"32">>}]},
+                      {4, [[{1, 410.0}], [{1, 4100.0}]]}], _}},
+                   P(<<"{\"F1\":1,"
+                       "\"F2\":\"2\","
+                       "\"F3\":{\"F31\":31,\"F32\":\"32\"},"
+                       "\"F4\":[{\"F41\":41E1},{\"F41\":41E2}]}">>))].
+
 
 %%
 %% Parser result _asser generator
