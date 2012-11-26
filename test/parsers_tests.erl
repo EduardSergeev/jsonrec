@@ -292,7 +292,8 @@ object_test_() ->
                      parsers:object(
                        [{?q("F1"), lift(?q(parsers:float_p)), ?q(1)},
                         {?q("F2"), lift(?q(parsers:string_p)), ?q(2)},
-                        {?q("F3"), lift(?q(parsers:integer_p)), ?q(3)}])))
+                        {?q("F3"), lift(?q(parsers:integer_p)), ?q(3)},
+                        {?q("F4"), parsers:nullable(lift(?q(parsers:integer_p))), ?q(4)}])))
         end,
     [?_assertMatch({ok, {[], _}}, P(<<"{}">>)),
      ?_assertMatch({ok, {[{1,42.23},{2,<<"str">>},{3,6543}], _}},
@@ -300,7 +301,11 @@ object_test_() ->
      ?_assertMatch({ok, {[{2,<<"str">>},{3,6543}], _}},
                    P(<<"{ \"F2\" : \"str\",\n\r \"F3\" :6543\n\t,\t}">>)),
      ?_assertMatch({error, _},
-                   P(<<"{\"F1\":42.23, \"F2\" : }">>))].
+                   P(<<"{\"F1\":42.23, \"F2\" : }">>)),
+     ?_assertMatch({ok, {[{4, 42}], _}},
+                   P(<<"{\"F4\" : 42}">>)),
+     ?_assertMatch({ok, {[{4, undefined}], _}},
+                   P(<<"{\"F4\" : null}">>))].
 
 %%
 %% Parser instance

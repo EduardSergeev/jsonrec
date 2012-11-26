@@ -17,6 +17,7 @@
          option/2,
 
          whitespace/0,
+         nullable/1,
          boolean/0, integer/0, float/0, string/0,
          object/1,
 
@@ -343,6 +344,12 @@ whitespace() ->
     matches([?q($\s), ?q($\t), ?q($\r), ?q($\n)]).
 
 
+nullable(Parser) ->
+    mplus(
+      right(match(?q("null")), return(?q(undefined))),
+      Parser).
+
+
 boolean() ->
     mplus(
       right(match(?q("true")), return(?q(true))),
@@ -507,11 +514,6 @@ escape() ->
 ws() ->
     skip_many(whitespace()).
 
-object_field_delim() ->
-    right(ws(),
-          left(option(match(?q($,)), ?q(no_comma)),
-               ws())).
-
 
 object(FPNs) ->
     bind(
@@ -528,6 +530,11 @@ object(FPNs) ->
                                 return(Fs))
                   end))
       end).
+
+object_field_delim() ->
+    right(ws(),
+          left(option(match(?q($,)), ?q(no_comma)),
+               ws())).
 
 
 p_matches(SPs) ->
