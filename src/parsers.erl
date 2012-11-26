@@ -17,7 +17,7 @@
          option/2,
 
          whitespace/0,
-         integer/0, float/0, string/0,
+         boolean/0, integer/0, float/0, string/0,
          object/1,
 
          integer_p/2, float_p/2, string_p/2,
@@ -106,7 +106,7 @@ match(QC) ->
     fun(QBin, QPos, Success, Failure) ->
             ?q(case ?s(QBin) of
                    <<_:?s(QPos)/binary, ?s(QC), _/binary>> ->
-                       Pos = ?s(QPos) + 1,
+                       Pos = ?s(QPos) + ?s(qsize(?i(QC))),
                        ?s(Success(QC, ?r(Pos)));
                    _ ->
                        ?s(Failure(?q({expected, <<?s(QC)>>}), QPos))
@@ -299,12 +299,25 @@ right(Left, Right) ->
          end).
 
 %%
+%% Utils
+%%
+qsize({string, _, S}) ->
+    ?v(?re(erl_syntax:abstract(length(S))));
+qsize({integer, _, _}) ->
+    ?q(1);
+qsize({char, _, _}) ->
+    ?q(1);
+qsize(E) ->
+    error({unsupported_type, E}).
+
+%%
 %% Additional monadic functions
 %%
 sequence([]) ->
     ?v([]);
 sequence([Q|Qs]) ->
     ?v([?s(Q)|?s(sequence(Qs))]).
+
 
 
 %%
@@ -328,6 +341,12 @@ inst_body(Parser, QBin, QPos) ->
 %%
 whitespace() ->   
     matches([?q($\s), ?q($\t), ?q($\r), ?q($\n)]).
+
+
+boolean() ->
+    mplus(
+      right(match(?q("true")), return(?q(true))),
+      right(match(?q("false")), return(?q(false)))).
 
 digit() ->
     guard(fun(QC) ->
@@ -469,6 +488,7 @@ substring() ->
 
 string_p(Bin, Pos) ->
     ?s(inst_body(string(), ?r(Bin), ?r(Pos))).
+
 
 escape() ->
     bind(match(?q($\\)),

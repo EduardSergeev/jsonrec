@@ -61,6 +61,18 @@ match_test_() ->
       ?_assertMatch({error, {_, 0}},
                     P(<<"2Rest">>))}].
 
+match_string_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(?r(Inp),
+                             match(?q("str"))))
+        end,
+    [{"match success",
+      ?_assertMatch({ok, {"str", 3}},
+                   P(<<"strRest">>))},
+     {"match failure",
+      ?_assertMatch({error, {_, 0}},
+                    P(<<"trRest">>))}].
+
 bind_match_test() ->
     P = fun(Inp) ->
                 ?s(inst_body(?r(Inp),
@@ -193,7 +205,16 @@ many_skip_many_test_() ->
      ?_assertMatch({ok, {_, 2}}, P(<<"10Rest">>)),
      ?_assertMatch({ok, {_, 5}}, P(<<"10100Rest">>))].
 
-
+boolean_test_() ->
+    P = fun(Inp) ->
+                ?s(inst_body(?r(Inp), parsers:boolean()))
+        end,
+    [?_assertMatch({ok, {true, 4}}, P(<<"true">>)),
+     ?_assertMatch({ok, {false, 5}}, P(<<"false">>)),
+     ?_assertMatch({error, {_, 0}}, P(<<"tru">>)),
+     ?_assertMatch({error, {_, 0}}, P(<<"tru1">>)),
+     ?_assertMatch({ok, {true, 4}}, P(<<"true1">>)),
+     ?_assertMatch({ok, {false, 5}}, P(<<"false1">>))].
 
 integer_test_() ->
     P = fun(Inp) ->
@@ -280,6 +301,11 @@ object_test_() ->
                    P(<<"{ \"F2\" : \"str\",\n\r \"F3\" :6543\n\t,\t}">>)),
      ?_assertMatch({error, _},
                    P(<<"{\"F1\":42.23, \"F2\" : }">>))].
+
+%%
+%% Parser instance
+%%
+    
 
 %%
 %% Parser result _asser generator
