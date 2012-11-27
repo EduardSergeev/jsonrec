@@ -319,6 +319,23 @@ float_list_test() ->
        {ok, {[42.0, 42.0, 4.2E14, 4.2E-11], _}},
        float_array(<<"[42.0, 42 ,  42E13  ,42.0e-12  ]">>)). 
 
+skip_json_test_() ->
+    P = fun(Inp) ->
+                parsers:skip_json_p(Inp, 0)
+        end,
+    Assert = fun(Inp) ->
+                     L = size(Inp),
+                     ?_assertMatch({ok, {_, L}}, P(Inp))
+             end,                
+    [Assert(<<"{}">>),
+     Assert(<<"null">>),
+     Assert(<<"true">>),
+     Assert(<<"42">>),
+     Assert(<<"\"string\"">>),
+     Assert(<<"5.454e-32">>),
+     Assert(<<"{\"F1\": {\"F11\" : 42 , \"F12\" : [true, 25, null]},
+                \"F2\" :{}}">>)].
+
 object_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
@@ -339,9 +356,14 @@ object_test_() ->
      ?_assertMatch({ok, {[{4, 42}], _}},
                    P(<<"{\"F4\" : 42}">>)),
      ?_assertMatch({ok, {[{4, undefined}], _}},
-                   P(<<"{\"F4\" : null}">>))].
+                   P(<<"{\"F4\" : null}">>)),
+     {"With unknown fields",
+      [?_assertMatch({ok, {[{1, 43.0}], _}},
+                     P(<<"{\"F1\" : 43, \"Unknown\" : {\"Ukn2\" : [1,true,{}]}}">>)),
+      ?_assertMatch({error, _},
+                    P(<<"{\"F1\" : 43, \"Unknown\" : {\"Ukn2\" : [1,true,{]}}">>))]}].
 
-neted_object_test_() ->
+nested_object_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
                      ?r(Inp),
@@ -353,7 +375,7 @@ neted_object_test_() ->
                                        lift(?q(parsers:integer_p)),
                                        ?q(1)},
                                       {?q("F32"),
-                                       lift(?q(parsers:string_p)),
+                                       parsers:array(lift(?q(parsers:string_p))),
                                        ?q(2)}]), ?q(3)},
                          {?q("F4"), parsers:array(
                                      parsers:object(
@@ -365,11 +387,11 @@ neted_object_test_() ->
      ?_assertMatch({ok,
                     {[{1, 1.0},
                       {2, <<"2">>},
-                      {3, [{1, 31},{2, <<"32">>}]},
+                      {3, [{1, 31},{2, [<<"32_1">>, <<"32_2">>]}]},
                       {4, [[{1, 410.0}], [{1, 4100.0}]]}], _}},
                    P(<<"{\"F1\":1,"
                        "\"F2\":\"2\","
-                       "\"F3\":{\"F31\":31,\"F32\":\"32\"},"
+                       "\"F3\":{\"F31\":31,\"F32\":[\"32_1\", \"32_2\"]},"
                        "\"F4\":[{\"F41\":41E1},{\"F41\":41E2}]}">>))].
 
 

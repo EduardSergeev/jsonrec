@@ -22,9 +22,11 @@
          boolean/0, integer/0, float/0, string/0,
          array/1,
          object/1,
+         skip_json/0,
 
          ws_p/2, null_p/2,
          boolean_p/2, integer_p/2, float_p/2, string_p/2,
+         skip_json_p/2,
 
          inst_body/2, inst_body/3,
 
@@ -390,6 +392,11 @@ positive(Acc) ->
                  many_acc(digit(), ?q([?s(QD)|?s(Acc)]))
          end).
 
+skip_positive() ->
+    right(
+      digit1_9(),
+      skip_many(digit())).
+
 int(Acc) ->
     bind(
       option(
@@ -401,6 +408,15 @@ int(Acc) ->
                          fun(_) -> return(?q([$0|?s(Acc1)])) end))
       end).
 
+skip_int() ->
+    right(
+      option(
+        match(?q($-)),
+        ?q(undefined)),
+      mplus(
+        skip_positive(),
+        digit0())).
+
 frac(Acc) ->
     bind(match(?q($.)),
          fun(_) ->
@@ -410,6 +426,13 @@ frac(Acc) ->
                       end)
          end).
 
+skip_frac() ->
+    right(
+      match(?q($.)),
+      right(
+        digit(),
+        skip_many(digit()))).
+
 exp(Acc) ->    
     bind(e(Acc),
          fun(Acc1) ->
@@ -418,6 +441,13 @@ exp(Acc) ->
                               many_acc(digit(), ?q([?s(D)|?s(Acc1)]))
                       end)
          end).
+
+skip_exp() ->    
+    right(
+      e(?q([])),
+      right(
+        digit(),
+        skip_many(digit()))).
 
 e(Acc) ->
     bind(matches([?q($e),?q($E)]),
@@ -439,6 +469,13 @@ float_digits(Acc) ->
                            option(exp(FDs), FDs)
                    end)
          end).
+
+skip_float() ->
+    right(
+      skip_int(),
+      right(
+        option(skip_frac(), ?q(undefined)),
+        option(skip_exp(), ?q(undefined)))).
 
 
 integer() ->
@@ -561,7 +598,26 @@ object(FPNs) ->
                          comma_delim())),
                   fun(Fs) ->
                           right(match(?q($})),
-                                return(Fs))
+                                return(
+                                  ?q(lists:filter(
+                                       fun is_tuple/1,
+                                       ?s(Fs)))))
+                  end))
+      end).
+
+skip_object() ->
+    bind(
+      match(?q(${)),
+      fun(_) ->
+              right(
+                ws(),
+                bind(
+                  skip_many(
+                    left(skip_object_field(),
+                         comma_delim())),
+                  fun(_) ->
+                          right(match(?q($})),
+                                get_pos())
                   end))
       end).
 
@@ -614,5 +670,36 @@ pair(F, P, N) ->
 
 object_field(FPNs) ->
     SPs = [ {F, pair(F, P, N)} || {F, P, N} <- FPNs ],
-    p_matches(SPs).
+    mplus(
+      p_matches(SPs),
+      skip_object_field()).
+
+skip_object_field() ->
+    right(
+      string(),
+      right(
+        ws(),
+        right(
+          match(?q($:)),
+          right(
+            ws(),
+            lift(?q(?MODULE:skip_json_p)))))).
+
+
+
+skip_json() ->
+    mplus(
+      null(),
+      mplus(
+       boolean(),
+       mplus(
+         skip_float(),
+         mplus(
+           string(),
+           mplus(
+             array(lift(?q(?MODULE:skip_json_p))),
+             skip_object()))))).
+
+skip_json_p(Bin, Pos) ->
+    ?s(inst_body(skip_json(), ?r(Bin), ?r(Pos))).
 
