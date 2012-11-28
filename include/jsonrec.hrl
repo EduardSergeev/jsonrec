@@ -1,7 +1,8 @@
 
 -include_lib("meta/include/meta.hrl").
 
--import(jsonrec, [encode_gen/4, decode_gen/4]).
+-import(jsonrec_encode, [encode_gen/4]).
+-import(jsonrec_decode, [decode_gen/4]).
 -meta([encode_gen/4, decode_gen/4]).
 
 

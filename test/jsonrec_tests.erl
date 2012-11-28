@@ -19,26 +19,36 @@
 %% -record(rec0,
 %%          {sta :: status()}).
 
-%% -record(rec0,
-%%         {id = 42 :: integer()}).
+%% -record(rec4,
+%%         {id2 :: integer()}).
+
+-record(rec3,
+        {id :: integer()}).
+         %% rec :: #rec4{} }).
 
 -record(rec0,
         {id :: integer(),
-         status = new :: status(),
-         atom :: atom(),
-         binary :: binary(),
-         boolean :: boolean()}).
+        status = new :: status(),
+        atom :: atom(),
+        binary :: binary(),
+        boolean :: boolean()
+        }).
 
 
-%%-type my_integer() :: integer().
+-type my_integer() :: integer().
 
 -record(rec1,
-        {id :: integer(),
+        {id :: my_integer(),
          rec0 :: #rec0{}}).
 
+%% -record(rec2,
+%%         {rs :: [#rec1{}]}).
+
+encode(#rec3{} = Rec) ->
+     ?encode_gen(#rec3{}, Rec).
 
 decode(rec0, Bin) ->
-    ?decode_gen(#rec0{}, Bin);
+     ?decode_gen(#rec0{}, Bin);
 decode(rec1, Bin) ->
     ?decode_gen(#rec1{}, Bin).
 
@@ -81,3 +91,9 @@ decode_test_() ->
                                        boolean = false, binary = <<>>}}},
                decode(rec1, Inp))
         end)}].
+
+%% rec1_list(Inp) ->
+%%     ?decode_gen(#rec2{}, Inp).
+    
+
+
