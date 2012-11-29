@@ -6,7 +6,9 @@
 
 -export([encode_gen/4]).
 
--export([integer_to_binary/1]).
+-export([integer_to_json/1, float_to_json/1,
+         binary_to_json/1, boolean_to_json/1,
+         atom_to_json/1]).
 
 -export([format_error/1]).
 
@@ -64,7 +66,7 @@ encode_gen(Attr, QArg, Type, Info, Options) ->
     Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
     Subs1 = [norm_type(T) || T <- Subs],                      
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
-                                  fun atom_to_msbinary/1),
+                                  fun atom_to_mslist/1),
     Attrs = meta:reify_attributes(Attr, ?e(Info)),
     Mps = #mps{
       defs = [],
@@ -77,7 +79,6 @@ encode_gen(Attr, QArg, Type, Info, Options) ->
     Fs = [?q(?s(FN) = ?s(Def))
           || {_, #def_funs{fun_name = FN, def = Def}} <- RDefs,
              Def /= none],
-    %% io:format("~p~n", [?e(lists:nth(2, Fs))]),
     Call = VFun(QArg),
     ?v(?re(erl_syntax:block_expr(
              ?s(parsers:sequence(Fs))
@@ -99,27 +100,20 @@ gen_encode({union, Types} = Type, Info, Mps) ->
     add_fun_def(Type, Def, Mps1);
 
 gen_encode({integer, []} = Type, _Info, Mps) ->
-    P = ?q(?MODULE:integer_to_binary),
+    P = ?q(?MODULE:integer_to_json),
     encode_basic_pred(Type, P, ?q(is_integer), Mps);
-
-%% gen_encode({binary, []} = Type, _Info, Mps) ->
-%%     P = ?q(?MODULE:integer_to_binary),
-%%     code_basic_pred(Type, ?q(is_binary), Mps);
-
-%% gen_encode({float, []} = Type, _Info, Mps) ->
-%%     code_basic_pred(Type, ?q(is_float), Mps);
-%% gen_encode({boolean, []} = Type, _Info, Mps) ->
-%%     code_basic_pred(Type, ?q(is_boolean), Mps);
-%% gen_encode({atom, []} = Type, _Info, Mps) ->
-%%     VFun = fun(_) ->
-%%                    fun(Item) ->
-%%                            ?q(atom_to_binary(?s(Item), utf8))
-%%                    end
-%%            end,
-%%     GFun = fun(Item) ->
-%%                    ?q(is_atom(?s(Item)))
-%%            end,
-%%     add_fun_def(Type, none, Mps, GFun, VFun);
+gen_encode({binary, []} = Type, _Info, Mps) ->
+    P = ?q(?MODULE:binary_to_json),
+    encode_basic_pred(Type, P, ?q(is_binary), Mps);
+gen_encode({float, []} = Type, _Info, Mps) ->
+    P = ?q(?MODULE:float_to_json),
+    encode_basic_pred(Type, P, ?q(is_float), Mps);
+gen_encode({boolean, []} = Type, _Info, Mps) ->
+    P = ?q(?MODULE:boolean_to_json),
+    encode_basic_pred(Type, P, ?q(is_boolean), Mps);
+gen_encode({atom, []} = Type, _Info, Mps) ->
+    P = ?q(?MODULE:atom_to_json),
+    encode_basic_pred(Type, P, ?q(is_atom), Mps);
 
 gen_encode({atom, Atom} = Type, _Info, Mps) ->
     VFun = fun(_) ->
@@ -129,7 +123,7 @@ gen_encode({atom, Atom} = Type, _Info, Mps) ->
                                    ?q(undefined);
                                true ->
                                    ?v(?re(erl_parse:abstract(
-                                            atom_to_binary(Atom, utf8))))
+                                            <<$\",(atom_to_binary(Atom, utf8))/binary, $\">>)))
                            end
                    end
            end,
@@ -144,8 +138,8 @@ gen_encode({atom, Atom} = Type, _Info, Mps) ->
 %%            end,
 %%     code_basic(Type, GFun, Mps);
 
-%% gen_encode({_UserType, _Args} = Type, Info, Mps) ->
-%%     code_underlying(Type, Info, Mps);
+gen_encode({_UserType, _Args} = Type, Info, Mps) ->
+    encode_underlying(Type, Info, Mps);
             
 gen_encode(Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type_encode, Type).
@@ -156,19 +150,18 @@ encode_fields(Fields, Info, Mps) ->
                 fun({I,T}, M) ->
                         encode_field(I, T, Info, M)
                 end, Mps, NFs),
-    %% Cons = fun(QReq) ->
-    %%                fun(F, {QAcc, QE}) ->
-    %%                        ?q(Acc = ?s(H(QRec, QAcc))
-    %%                        ?q(?s(H(QReq))(?s(T)))
-    %%                end
-    %%                           end,
+    Es1 = lists:reverse(Es),
     {?q(fun(Record) ->
-                [<<"{">>, ?s(loop(?r(Record), ?q([]), Es)), <<"}">>]
+                [<<"{">>, ?s(loop(?r(Record), ?q([]), Es1)), <<"}">>]
         end),
      Mps1}.
 
 loop(QRec, QAcc, [F]) ->
-    F(QRec, QAcc);
+    ?q(case ?s(F(QRec, QAcc)) of
+           [] ->
+               [];
+           [_|Es] -> Es
+       end);
 loop(QRec, QAcc, [F|Fs]) ->
     ?q(begin
            Acc = ?s(F(QRec, QAcc)),
@@ -188,15 +181,16 @@ encode_field(Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
 
 encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     {VFun, Mps1} = fetch(Type, Info, Mps),
-    AFN = ?v(?re(erl_parse:abstract(NC(Fn)))),
+    AFN = ?v(?re(erl_parse:abstract("\"" ++ NC(Fn) ++ "\""))),
     QInd = ?v(?re(erl_parse:abstract(Ind))),
     DefFun = fun(QRec, QAcc) ->
-                     ?q(if
-                            element(?s(QInd), ?s(QRec))  =/= undefined ->
-                                [?s(AFN), <<":">>, ?s(VFun(?q(element(?s(QInd), ?s(QRec)))))
-                                 | ?s(QAcc)];
-                            true ->
-                                ?s(QAcc)
+                     ?q(begin
+                            V = ?s(VFun(?q(element(?s(QInd), ?s(QRec))))),
+                            if V =/= undefined ->
+                                    [<<$,>>, ?s(AFN), <<":">>, ?s(?r(V)) | ?s(QAcc)];
+                               true ->
+                                    ?s(QAcc)
+                            end
                         end)
              end,
     {DefFun, Mps1}.
@@ -212,7 +206,7 @@ fetch(Type, Info, #mps{code_fun = CodeFun} = Mps) ->
             case proplists:lookup(Type, Attrs) of
                 none ->
                     case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, #def_funs{fun_name = Fun}} ->
+                        {Type, #def_funs{v_fun = Fun}} ->
                             {Fun, Mps};
                         none ->
                             CodeFun(Type, Info, Mps)
@@ -232,8 +226,14 @@ fetch(Type, Info, #mps{code_fun = CodeFun} = Mps) ->
 
 encode_list(InnerType, Info, Mps) -> 
     {Fun, Mps1} = fetch(type_ref(InnerType), Info, Mps),
-    Def = ?q(fun(Es) ->
-                     lists:map(fun(E) -> ?s(Fun(?r(E))) end, Xs)
+    Def = ?q(fun([]) ->
+                     <<"[]">>;
+                (Es) ->
+                     [<<$[>> |
+                      tl(lists:foldl(fun(E, Acc) ->
+                                             [<<$,>>, ?s(Fun(?r(E))) | Acc]
+                                     end,
+                                     [<<$]>>], lists:reverse(Es)))]
              end),
     add_fun_def({list, [InnerType]}, Def, Mps1).
 
@@ -260,11 +260,22 @@ encode_union(Types, Info, Mps) ->
     {Def, MpsN}.
 
 
-%% code_underlying({_, Args} = Type, Info, Mps) ->
+%% encode_underlying({_, Args} = Type, Info, Mps) ->
 %%     Type1 =  meta:reify_type(Type, Info),
 %%     {_, Type2, []} = ground_type(Type1, Args),
 %%     TR = type_ref(Type2),
 %%     fetch(TR, Info, Mps).
+
+encode_underlying({_, Args} = Type, Info, Mps) ->
+    Type1 =  meta:reify_type(Type, Info),
+    {_, Type2, []} = ground_type(Type1, Args),
+    TR = type_ref(Type2),
+    {VFun, Mps1} = fetch(TR, Info, Mps),
+    FunVFun = fun(_) -> VFun end,
+    GFun = get_guard(TR, Mps1),
+    add_fun_def(Type, none, Mps1, FunVFun, GFun).
+
+
 
 
 encode_basic_pred(Type, FunName, QGuardFun, Mps) ->
@@ -282,8 +293,8 @@ encode_basic_pred(Type, FunName, QGuardFun, Mps) ->
 %%
 %% Default data conversion functions
 %%
-atom_to_msbinary(Atom) ->
-    list_to_binary(atom_to_mslist(Atom)).
+%% atom_to_msbinary(Atom) ->
+%%     list_to_binary(atom_to_mslist(Atom)).
 
 atom_to_mslist(Atom) when is_atom(Atom) ->
     List = atom_to_list(Atom),
@@ -291,8 +302,26 @@ atom_to_mslist(Atom) when is_atom(Atom) ->
     Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
     lists:concat(Capitalized). 
 
-integer_to_binary(I) ->
+%%
+%% JSON emitter functions 
+%%
+integer_to_json(I) ->
     list_to_binary(integer_to_list(I)).
+
+float_to_json(F) ->
+    list_to_binary(float_to_list(F)).
+
+binary_to_json(B) ->    
+    <<$", B/binary, $">>.
+
+boolean_to_json(true) ->
+    <<"true">>;
+boolean_to_json(false) ->
+    <<"false">>.
+
+atom_to_json(A) ->
+    <<$\", (atom_to_binary(A, utf8))/binary, $\">>.
+
 
 %%
 %% Utils
@@ -320,21 +349,20 @@ norm_type({Name, _Def, Args}) ->
 norm_type({_Name, _Args} = Type) ->
     Type.
 
-%% ground_type({Name, Def, Params}, Args) ->
-%%     PAs = lists:zip(Params, Args),
-%%     Ls = lists:map(
-%%            fun({{var, _, P}, TA}) ->
-%%                    {P, TA}
-%%            end, PAs),
-
-%%     DC = dict:from_list(Ls),
-%%     Fun = fun({var, _Ln, P}) ->
-%%                   dict:fetch(P, DC);
-%%              (Smt) ->
-%%                   Smt
-%%           end,
-%%     Def1 = map(Fun, Def),
-%%     {Name, Def1, []}.
+ground_type({Name, Def, Params}, Args) ->
+    PAs = lists:zip(Params, Args),
+    Ls = lists:map(
+           fun({{var, _, P}, TA}) ->
+                   {P, TA}
+           end, PAs),
+    DC = dict:from_list(Ls),
+    Fun = fun({var, _Ln, P}) ->
+                  dict:fetch(P, DC);
+             (Smt) ->
+                  Smt
+          end,
+    Def1 = map(Fun, Def),
+    {Name, Def1, []}.
 
 
 add_fun_def(Type, Def, Mps) ->
@@ -399,6 +427,20 @@ format(Format, Args) ->
 %%
 %% Utils
 %%
+
+%%
+%% Depth-first map
+%%
+map(Fun, Form) when is_tuple(Form) ->
+    Fs = tuple_to_list(Form),
+    Fs1 = map(Fun, Fs),
+    Form1 = list_to_tuple(Fs1),
+    Fun(Form1);
+map(Fun, Fs) when is_list(Fs) ->
+    [map(Fun, F) || F <- Fs];
+map(Fun, Smt) ->
+    Fun(Smt).
+
 
 
 %% encode(Rec) ->
