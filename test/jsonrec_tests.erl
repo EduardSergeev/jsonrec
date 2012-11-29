@@ -12,21 +12,6 @@
 
 -include("../include/jsonrec.hrl").
 
--compile(export_all).
-
-%% -type status() :: new | old | unknown.
-
-%% -record(rec0,
-%%          {sta :: status()}).
-
-%% -record(rec4,
-%%         {id2 :: integer()}).
-
-%% -record(rec3,
-%%         {id :: integer(),
-%%          f1 :: float(),
-%%          rec :: #rec4{} }).
-
 -type my_integer() :: integer().
 -type my_list(A) :: [A].
 
@@ -55,14 +40,14 @@
          rec1 = [#rec1{}]:: [my_rec()]}).
 
 
-%% -type any_rec() :: #rec0{} | #rec1{}.
+-type any_rec() :: #rec0{} | #rec1{}.
 
-%% %% -decode({{any_rec,[]}, {any,[]}}).
+-decode({{any_rec,[]}, {any,[]}}).
 
-%% -record(rec3,
-%%         {id = 0 :: integer(),
-%%          type = rec0 :: rec0 | rec1,         %% we need this descriptor
-%%          rec = #rec0{id = 1} :: any_rec()}). %% to be able to decode 'rec' field
+-record(rec3,
+        {id = 0 :: integer(),
+         type = rec0 :: rec0 | rec1,         %% we need this descriptor
+         rec = #rec0{id = 1} :: any_rec()}). %% to be able to decode 'rec' field
 
 
 -type status() :: new | old | unknown | my_atom().
@@ -86,8 +71,8 @@ encode(#rec1{} = Rec) ->
     ?encode_gen(#rec1{}, Rec);
 encode(#rec2{} = Rec) ->
     ?encode_gen(#rec2{}, Rec);
-%% encode(#rec3{} = Rec) ->
-%%     ?encode_gen(#rec3{}, Rec);
+encode(#rec3{} = Rec) ->
+    ?encode_gen(#rec3{}, Rec);
 encode(#rec4{} = Rec) ->
     ?encode_gen(#rec4{}, Rec).
 
@@ -101,9 +86,10 @@ decode(rec1, Struct) ->
     ?decode_gen(#rec1{}, Struct);
 decode(rec2, Struct) ->
     ?decode_gen(#rec2{}, Struct);
-%% decode(rec3, Struct) ->
-%%     #rec3{type = Type, rec = Str} = Rec = ?decode_gen(#rec3{}, Struct),
-%%     Rec#rec3{rec = decode(Type, Str)};
+decode(rec3, Struct) ->
+    {ok, #rec3{type = Type, rec = Bin} = Rec} = ?decode_gen(#rec3{}, Struct),
+    {ok, RecField} = decode(Type, Bin),
+    {ok, Rec#rec3{rec = RecField}};
 decode(rec4, Struct) ->
     ?decode_gen(#rec4{}, Struct).
 
@@ -145,6 +131,25 @@ decode_test_() ->
                decode(rec1, Inp))
         end)}].
 
+decode_error_test_() ->
+    [{"Invalid format: missing {",
+      ?_assertMatch(
+         {error, {{expected, <<"{">>}, 0}},
+         decode(rec0, <<"\"Id\":42}">>))},
+     {"Invalid format: missing }",
+      ?_assertMatch(
+         {error, {{expected, <<"}">>}, 8}},
+         decode(rec0, <<"{\"Id\":42">>))}].
+     %% {"Invalid format: missing deilimiter :",
+     %%  ?_assertMatch(
+     %%     {error, {{expected, <<":">>}, 5}},
+     %%     decode(rec0, <<"{\"Id\"42}">>))},
+     %% {"Invalid content",
+     %%  ?_assertMatch(
+     %%     {error, {_, 6}},
+     %%     decode(rec0, <<"{\"Id\":\"wrong\"}">>))}].
+
+
 rec0_test() ->
     Rec = #rec0
         {id = 42,
@@ -171,14 +176,22 @@ rec2_test() ->
          arr = [5]},
    decode_encode(rec2, Rec).
 
-%% rec3_test() ->
-%%     Rec0 = #rec3{id = 1},
-%%     Rec1 = #rec3
-%%         {id = 2,
-%%          type = rec1,
-%%          rec = #rec1{id = 2}},
-%%     decode_encode(rec3, Rec0),
-%%     decode_encode(rec3, Rec1).
+rec3_decode_test() ->
+    Rec = #rec3
+        {id = 1,
+         type = rec1,
+         rec = #rec1{id = 2}},
+    Json = <<"{\"Id\":1,\"Type\":\"rec1\",\"Rec\":{\"Id\":2}}">>,
+    ?assertMatch({ok, Rec}, decode(rec3, Json)).
+
+rec3_test() ->
+    Rec0 = #rec3{id = 1},
+    Rec1 = #rec3
+        {id = 2,
+         type = rec1,
+         rec = #rec1{id = 11}},
+    decode_encode(rec3, Rec0),
+    decode_encode(rec3, Rec1).
 
 
 %%

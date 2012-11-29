@@ -49,16 +49,8 @@
          name_conv}).
 
 -record(def_funs,
-        {%%value,
-         fun_name,
-         %% guard,
-         %% pattern,
-         def
-}).
-
-%% encode_gen(QRec, Type, Info, Options) ->
-%%     code_gen(fun gen_encode/4, encode, QRec, Type, Info, Options).
-
+        {fun_name,
+         def}).
 
 decode_gen(QStr, Type, Info, Options) ->
     code_gen(fun gen_decode/3, decode, QStr, Type, Info, Options).
@@ -162,11 +154,9 @@ gen_decode({atom, Atom} = Type, _Info, Mps) ->
              end),
     add_fun_def(Type, Def, Mps);
 
-%% gen_decode({any, []} = Type, _Info, Mps) ->
-%%     GFun = fun(_Item) ->
-%%                    ?q(true)
-%%            end,
-%%     code_basic(Type, GFun, Mps);
+gen_decode({any, []} = Type, _Info, Mps) ->
+    P = ?q(parsers:any_json_p),
+    code_basic(Type, P, Mps);
 
 gen_decode({_UserType,_Args} = Type, Info, Mps) ->
     code_underlying(Type, Info, Mps);
@@ -212,7 +202,6 @@ decode_record(Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     QFn = ?v(?re(erl_parse:abstract(NC(Fn)))),
     QInd = ?v(?re(erl_parse:abstract(Index))),
     Triple = {QFn, parsers:lift(Fun), QInd},
-    %% io:format("Triple: ~p~n", [?e(QInd)]),
     {Triple, Mps1}. 
 
 

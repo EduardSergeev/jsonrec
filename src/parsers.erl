@@ -2,7 +2,6 @@
 
 -include_lib("meta/include/meta.hrl").
 
-%%-compile(export_all).
 -export([return/1, bind/2, fail/1,
          mplus/2,
          left/2, right/2,

@@ -91,7 +91,11 @@ encode_gen(Attr, QArg, Type, Info, Options) ->
 gen_encode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {Def, Mps1} = encode_fields(Fields, Info, Mps),
-    add_fun_def(Type, Def, Mps1);
+    QTag = ?v(?re(erl_parse:abstract(RecName))),
+    GFun = fun(Item) ->
+                   ?q(is_record(?s(Item), ?s(QTag)))
+           end,
+    add_fun_def(Type, Def, Mps1, id, GFun);
 gen_encode({list, [InnerType]}, Info, Mps) ->
     encode_list(InnerType, Info, Mps);
 
@@ -259,13 +263,6 @@ encode_union(Types, Info, Mps) ->
     Def = ?v(?re(erl_syntax:fun_expr(Cs))),
     {Def, MpsN}.
 
-
-%% encode_underlying({_, Args} = Type, Info, Mps) ->
-%%     Type1 =  meta:reify_type(Type, Info),
-%%     {_, Type2, []} = ground_type(Type1, Args),
-%%     TR = type_ref(Type2),
-%%     fetch(TR, Info, Mps).
-
 encode_underlying({_, Args} = Type, Info, Mps) ->
     Type1 =  meta:reify_type(Type, Info),
     {_, Type2, []} = ground_type(Type1, Args),
@@ -274,9 +271,6 @@ encode_underlying({_, Args} = Type, Info, Mps) ->
     FunVFun = fun(_) -> VFun end,
     GFun = get_guard(TR, Mps1),
     add_fun_def(Type, none, Mps1, FunVFun, GFun).
-
-
-
 
 encode_basic_pred(Type, FunName, QGuardFun, Mps) ->
     FunVFun = fun(_) ->
@@ -366,17 +360,18 @@ ground_type({Name, Def, Params}, Args) ->
 
 
 add_fun_def(Type, Def, Mps) ->
+    add_fun_def(Type, Def, Mps, id).
+
+add_fun_def(Type, Def, Mps, FunVFun) ->
+    add_fun_def(Type, Def, Mps, FunVFun, none).
+
+add_fun_def(Type, Def, Mps, id, GFun) ->
     FunVFun = fun(QFunName) ->
                    fun(Item) ->
                            ?q(?s(QFunName)(?s(Item)))
                    end
-           end,
-    add_fun_def(Type, Def, Mps, FunVFun).
-
-add_fun_def(Type, Def, Mps, FunVFun) ->
-    add_fun_def(Type, Def, Mps, FunVFun, none).
-    
-
+              end,
+    add_fun_def(Type, Def, Mps, FunVFun, GFun);
 add_fun_def(Type, Def, #mps{defs = Defs} = Mps, FunVFun, GFun) ->
     Ind = length(Defs),
     FN = list_to_atom("Fun" ++ integer_to_list(Ind)),
@@ -395,16 +390,6 @@ get_guard(Type, #mps{defs = Defs}) ->
     #def_funs{g_fun = GFun} = proplists:get_value(Type, Defs),
     GFun.
 
-%% get_pattern(Type, #mps{defs = Defs}) ->
-%%     #def_funs{pattern = PFun} = proplists:get_value(Type, Defs),
-%%     PFun.
-   
-%% gen_var(QRec) ->
-%%     Vn = erl_syntax:variable_name(QRec),
-%%     SVn = atom_to_list(Vn),
-%%     SVn1 = SVn ++ "1",
-%%     erl_syntax:revert(erl_syntax:variable(SVn1)).
-
 
 json_fun({Mod,Fun}) ->
     QM = ?v(?re(erl_parse:abstract(Mod))),
@@ -412,7 +397,6 @@ json_fun({Mod,Fun}) ->
     ?q(?s(QM):?s(QF));
 json_fun(LocalFun) ->
     ?v(?re(erl_parse:abstract(LocalFun))).
-
 
 %%
 %% Formats error messages for compiler 
@@ -440,21 +424,3 @@ map(Fun, Fs) when is_list(Fs) ->
     [map(Fun, F) || F <- Fs];
 map(Fun, Smt) ->
     Fun(Smt).
-
-
-
-%% encode(Rec) ->
-%%     Acc = [],
-%%     Acc1 = if
-%%                Rec#rec.id =/= undefined ->
-%%                    [Rec#rec.id|Acc];
-%%                true ->
-%%                    Acc
-%%            end,
-%%     Acc2 = if
-%%                Rec#rec.f1 =/= undefined ->
-%%                    [Rec#rec.f1|Acc1];
-%%                true ->
-%%                    Acc1
-%%            end,
-%%     [<<${>>, Acc2, <<$}>>].
