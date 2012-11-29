@@ -336,6 +336,23 @@ skip_json_test_() ->
      Assert(<<"{\"F1\": {\"F11\" : 42 , \"F12\" : [true, 25, null]},
                 \"F2\" :{}}">>)].
 
+any_json_test_() ->
+    P = fun(Inp) ->
+                parsers:any_json_p(Inp, 0)
+        end,
+    Assert = fun(Inp) ->
+                     L = size(Inp),
+                     ?_assertEqual({ok, {Inp, L}}, P(Inp))
+             end,                
+    [Assert(<<"{}">>),
+     Assert(<<"null">>),
+     Assert(<<"true">>),
+     Assert(<<"42">>),
+     Assert(<<"\"string\"">>),
+     Assert(<<"5.454e-32">>),
+     Assert(<<"{\"F1\": {\"F11\" : 42 , \"F12\" : [true, 25, null]},
+                \"F2\" :{}}">>)].
+
 object_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(

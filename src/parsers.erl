@@ -23,10 +23,12 @@
          array/1,
          object/1,
          skip_json/0,
+         any_json/0,
 
          ws_p/2, null_p/2,
          boolean_p/2, integer_p/2, float_p/2, string_p/2,
          skip_json_p/2,
+         any_json_p/2,
 
          inst_body/2, inst_body/3,
 
@@ -703,3 +705,26 @@ skip_json() ->
 skip_json_p(Bin, Pos) ->
     ?s(inst_body(skip_json(), ?r(Bin), ?r(Pos))).
 
+any_json() ->
+    bind(
+      get_bin(),
+      fun(Bin) ->
+              bind(
+                get_pos(),
+                fun(P0) ->
+                        bind(
+                          right(
+                            skip_json(),
+                            get_pos()),
+                          fun(P1) ->
+                                  return(
+                                   ?q(binary:part(
+                                       ?s(Bin),
+                                       ?s(P0),
+                                       ?s(P1) - ?s(P0))))
+                          end)
+                end)
+      end).
+
+any_json_p(Bin, Pos) ->
+    ?s(inst_body(any_json(), ?r(Bin), ?r(Pos))).
