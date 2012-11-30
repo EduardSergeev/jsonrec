@@ -7,25 +7,26 @@
 
 return_test() ->
     P = fun(_Inp) ->
-                ?s(inst_body(?r(_Inp),
-                             return(?q(42))))
+                ?s(inst_body(
+                     return(?q(42)),
+                     ?r(_Inp)))
         end,
     ?assertMatch({ok, {42, 0}}, P(<<"Garbage">>)).    
 
 bind_test() ->
     P = fun(_Inp) ->
-                ?s(inst_body(?r(_Inp),
-                             bind(return(?q(42)),
-                                  fun(QV) ->
-                                          return(?q(?s(QV) + 1))
-                                  end)))
+                ?s(inst_body(
+                     bind(return(?q(42)),
+                          fun(QV) ->
+                                  return(?q(?s(QV) + 1))
+                          end),
+                     ?r(_Inp)))
         end,
     ?assertMatch({ok, {43, 0}}, P(<<"Garbage">>)).
 
 get_pos_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
                      bind(
                        get_pos(),
                        fun(P0) ->
@@ -38,7 +39,8 @@ get_pos_test_() ->
                                                    return(?q({?s(P0),?s(P1)}))
                                            end)
                                  end)
-                       end)))
+                       end),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {{0,0}, 0}}, P(<<>>)),
      ?_assertMatch({ok, {{0,0}, 0}}, P(<<"Rest">>)),
@@ -51,8 +53,9 @@ get_pos_test_() ->
 
 match_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             match(?q($1))))
+                ?s(inst_body(
+                     match(?q($1)),
+                     ?r(Inp)))
         end,
     [{"match success",
       ?_assertMatch({ok, {$1, 1}},
@@ -63,8 +66,9 @@ match_test_() ->
 
 match_string_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             match(?q("str"))))
+                ?s(inst_body(
+                     match(?q("str")),
+                     ?r(Inp)))
         end,
     [{"match success",
       ?_assertMatch({ok, {"str", 3}},
@@ -75,21 +79,23 @@ match_string_test_() ->
 
 bind_match_test() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             bind(match(?q($1)),
-                                  fun(Q1) ->
-                                          bind(match(?q($2)),
-                                               fun(Q2) ->
-                                                       return(?q({?s(Q1),?s(Q2)}))
-                                               end)
-                                  end)))
+                ?s(inst_body(
+                     bind(match(?q($1)),
+                          fun(Q1) ->
+                                  bind(match(?q($2)),
+                                       fun(Q2) ->
+                                               return(?q({?s(Q1),?s(Q2)}))
+                                       end)
+                          end),
+                     ?r(Inp)))
         end,
     ?assertMatch({ok, {{$1,$2}, 2}}, P(<<"12Rest">>)).
 
 many_match_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             many(match(?q($1)))))
+                ?s(inst_body(
+                     many(match(?q($1))),
+                     ?r(Inp)))
         end,
     [{"One match",
       ?_assertMatch({ok, {[$1], 1}}, P(<<"1Rest">>))},
@@ -100,18 +106,20 @@ many_match_test_() ->
 
 bind_many_match_test() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             bind(many(match(?q($1))),
-                                  fun(QVs) ->
-                                          return(?q(length(?s(QVs))))
-                                  end)))
+                ?s(inst_body(
+                     bind(many(match(?q($1))),
+                          fun(QVs) ->
+                                  return(?q(length(?s(QVs))))
+                          end),
+                     ?r(Inp)))
         end,
     ?assertMatch({ok, {3, 3}}, P(<<"111Rest">>)).
 
 matches_test() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             matches([?q($1),?q($2)])))
+                ?s(inst_body(
+                     matches([?q($1),?q($2)]),
+                     ?r(Inp)))
         end,
     [{"First match",
       ?_assertMatch({ok, {$1, 1}}, P(<<"1Rest">>))},
@@ -125,22 +133,24 @@ matches_test() ->
 
 guard_test() ->
     P = fun(Inp) ->
-           ?s(inst_body(?r(Inp),
-                        bind(many(guard(fun(QC) ->
-                                                ?q(?s(QC) >= $0
-                                                   andalso ?s(QC) =< $9)
-                                        end)),
-                             fun(QVs) ->
-                                     return(?q(length(?s(QVs))))
-                             end)))
+           ?s(inst_body(
+                bind(many(guard(fun(QC) ->
+                                        ?q(?s(QC) >= $0
+                                           andalso ?s(QC) =< $9)
+                                end)),
+                     fun(QVs) ->
+                             return(?q(length(?s(QVs))))
+                     end),
+                ?r(Inp)))
            end,
     ?assertMatch({ok, {4, 4}}, P(<<"1024Rest">>)).
 
 mplus_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             mplus(match(?q($1)),
-                                   match(?q($2)))))
+                ?s(inst_body(
+                     mplus(match(?q($1)),
+                           match(?q($2))),
+                     ?r(Inp)))
         end,
     [{"First match",
       ?_assertMatch({ok, {$1, 1}}, P(<<"1Rest">>))},
@@ -154,11 +164,11 @@ mplus_test_() ->
 skip_while_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
                      skip_while(
-                      fun(QC) ->
-                              ?q(?s(QC) =/= $1)
-                      end)))
+                       fun(QC) ->
+                               ?q(?s(QC) =/= $1)
+                       end),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {_, 0}}, P(<<>>)),
      ?_assertMatch({ok, {_, 0}}, P(<<"1">>)),
@@ -167,8 +177,8 @@ skip_while_test_() ->
 skip_many_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
-                     skip_many(match(?q($1)))))
+                     skip_many(match(?q($1))),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {_, 0}}, P(<<>>)),
      ?_assertMatch({ok, {_, 1}}, P(<<"1">>)),
@@ -183,8 +193,8 @@ thousands() ->
 skip_many_longer_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
-                     skip_many(thousands())))
+                     skip_many(thousands()),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {_, 0}}, P(<<>>)),
      ?_assertMatch({ok, {_, 5}}, P(<<"10100Rest">>)),
@@ -193,13 +203,13 @@ skip_many_longer_test_() ->
 many_skip_many_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
                      many(
                        bind(match(?q($1)),
                             fun(_) ->
                                     skip_many1(
                                       match(?q($0)))
-                            end))))
+                            end)),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {_, 0}}, P(<<>>)),
      ?_assertMatch({ok, {_, 2}}, P(<<"10Rest">>)),
@@ -207,7 +217,9 @@ many_skip_many_test_() ->
 
 boolean_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp), parsers:boolean()))
+                ?s(inst_body(
+                     parsers:boolean(),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {true, 4}}, P(<<"true">>)),
      ?_assertMatch({ok, {false, 5}}, P(<<"false">>)),
@@ -218,7 +230,9 @@ boolean_test_() ->
 
 integer_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp), parsers:integer()))
+                ?s(inst_body(
+                     parsers:integer(),
+                     ?r(Inp)))
         end,
     [ gen_assert(E,PVal) ||
         {E,PVal} <-
@@ -234,7 +248,9 @@ integer_test_() ->
 
 float_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp), parsers:float()))
+                ?s(inst_body(
+                     parsers:float(),
+                     ?r(Inp)))
         end,
     [ gen_assert(E,PVal) ||
         {E,PVal} <-
@@ -263,10 +279,11 @@ float_test_() ->
 
 array_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             parsers:array(
-                               parsers:nullable(
-                                parsers:float()))))
+                ?s(inst_body(
+                     parsers:array(
+                       parsers:nullable(
+                         parsers:float())),
+                     ?r(Inp)))
         end,
     [ gen_assert(E,PVal) ||
         {E,PVal} <-
@@ -280,12 +297,13 @@ array_test_() ->
 
 array_bind_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             right(
-                               parsers:array(
-                                 parsers:nullable(
-                                   parsers:string())),
-                               parsers:integer())))
+                ?s(inst_body(
+                     right(
+                       parsers:array(
+                         parsers:nullable(
+                           parsers:string())),
+                       parsers:integer()),
+                     ?r(Inp)))
         end,
     [ gen_assert(E,PVal) ||
         {E,PVal} <-
@@ -295,12 +313,13 @@ array_bind_test_() ->
 
 array_mplus_test_() ->
     P = fun(Inp) ->
-                ?s(inst_body(?r(Inp),
-                             mplus(
-                               parsers:array(
-                                 parsers:nullable(
-                                   parsers:string())),
-                               parsers:integer())))
+                ?s(inst_body(
+                     mplus(
+                       parsers:array(
+                         parsers:nullable(
+                           parsers:string())),
+                       parsers:integer()),
+                     ?r(Inp)))
         end,
     [ gen_assert(E,PVal) ||
         {E,PVal} <-
@@ -311,8 +330,8 @@ array_mplus_test_() ->
 
 float_array(Inp) ->
     ?s(inst_body(
-         ?r(Inp),
-         parsers:array(parsers:float()))).
+         parsers:array(parsers:float()),
+         ?r(Inp))).
 
 float_list_test() ->
     ?assertMatch(
@@ -356,12 +375,13 @@ any_json_test_() ->
 object_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
                      parsers:object(
                        [{?q("F1"), lift(?q(parsers:float_p)), ?q(1)},
                         {?q("F2"), lift(?q(parsers:string_p)), ?q(2)},
                         {?q("F3"), lift(?q(parsers:integer_p)), ?q(3)},
-                        {?q("F4"), parsers:nullable(lift(?q(parsers:integer_p))), ?q(4)}])))
+                        {?q("F4"), parsers:nullable(lift(?q(parsers:integer_p))),
+                         ?q(4)}]),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {[], _}}, P(<<"{}">>)),
      ?_assertMatch({ok, {[{1,42.23},{2,<<"str">>},{3,6543}], _}},
@@ -383,7 +403,6 @@ object_test_() ->
 nested_object_test_() ->
     P = fun(Inp) ->
                 ?s(inst_body(
-                     ?r(Inp),
                      parsers:object(
                        [{?q("F1"), lift(?q(parsers:float_p)), ?q(1)},
                         {?q("F2"), lift(?q(parsers:string_p)), ?q(2)},
@@ -398,7 +417,8 @@ nested_object_test_() ->
                                      parsers:object(
                                       [{?q("F41"),
                                         lift(?q(parsers:float_p)),
-                                        ?q(1)}])), ?q(4)}])))
+                                        ?q(1)}])), ?q(4)}]),
+                     ?r(Inp)))
         end,
     [?_assertMatch({ok, {[], _}}, P(<<"{}">>)),
      ?_assertMatch({ok,

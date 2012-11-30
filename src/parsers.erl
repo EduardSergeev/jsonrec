@@ -26,7 +26,7 @@
 
          ws_p/2, null_p/2,
          boolean_p/2, integer_p/2, float_p/2, string_p/2,
-         skip_json_p/2,
+         skip_object_field_p/2, skip_json_p/2,
          any_json_p/2,
 
          inst_body/2, inst_body/3,
@@ -332,7 +332,7 @@ sequence([Q|Qs]) ->
 %%
 %% Utilify function for conversion of meta-parser to parser body (as a quote)
 %%
-inst_body(QBin, Parser) ->
+inst_body(Parser, QBin) ->
     inst_body(Parser, QBin, ?q(0)).
 
 inst_body(Parser, QBin, QPos) ->
@@ -673,7 +673,7 @@ object_field(FPNs) ->
     SPs = [ {F, pair(F, P, N)} || {F, P, N} <- FPNs ],
     mplus(
       p_matches(SPs),
-      skip_object_field()).
+      lift(?q(?MODULE:skip_object_field_p))).
 
 skip_object_field() ->
     right(
@@ -685,6 +685,9 @@ skip_object_field() ->
           right(
             ws(),
             lift(?q(?MODULE:skip_json_p)))))).
+
+skip_object_field_p(Bin, Pos) ->
+    ?s(inst_body(skip_object_field(), ?r(Bin), ?r(Pos))).
 
 
 
@@ -713,7 +716,7 @@ any_json() ->
                 fun(P0) ->
                         bind(
                           right(
-                            skip_json(),
+                            lift(?q(?MODULE:skip_json_p)),
                             get_pos()),
                           fun(P1) ->
                                   return(
