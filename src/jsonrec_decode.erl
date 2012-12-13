@@ -67,11 +67,7 @@ code_gen(Attr, QArg, Type, Info, Options) ->
       attrs = Attrs,
       name_conv = NameFun},
     {Parser, _} = gen_decode(type_ref(Type1), ?e(Info), Mps),
-    %% RDefs = lists:reverse(Mps1#mps.defs),
-    %% Fs = [?q(?s(FN) = ?s(Def))
-    %%       || {_, #def_funs{fun_name = FN, def = Def}} <- RDefs,
-    %%          Def /= none],
-    ?q(case ?s(inst_body(Parser, QArg)) of
+    ?q(case ?s(to_parser(Parser, QArg)) of
            {ok, {Val, _}} ->
                {ok, Val};
            {error, _} = E ->

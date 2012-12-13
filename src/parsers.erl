@@ -5,15 +5,14 @@
 -export([return/1, bind/2, fail/1,
          mplus/2,
          left/2, right/2,
-         get_pos/0, get_bin/0,
+         get_bin/0,
          lift/1,
          match/1, matches/1,
          guard/1,
          fold/3, fold_iter/4,
-         many_acc/2, many_acc_iter/3,
-         many/1, many1/1, many_iter/3,
-         skip_many/1, skip_many1/1,
-         skip_while/1,
+         many_acc/2, %% many_acc_iter/3,
+         many/1, many1/1,
+         skip_many/1, skip_many1/1, %% skip_many_iter/2,
          option/2,
 
          whitespace/0,
@@ -24,39 +23,66 @@
          skip_json/0,
          any_json/0,
 
-         ws_p/2, null_p/2,
-         boolean_p/2, integer_p/2, float_p/2, string_p/2,
-         skip_object_field_p/2, skip_json_p/2,
-         any_json_p/2,
+         ws_p/1, null_p/1,
+         boolean_p/1, integer_p/1, float_p/1, string_p/1,
+         skip_object_field_p/1, skip_json_p/1,
+         any_json_p/1,
 
-         inst_body/2, inst_body/3,
+         inst_body/2, to_parser/2,
 
          sequence/1]).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
+%% -compile(bin_opt_info).
+-compile(export_all).
+
 %%
 %% Basic monadic interface
 %%
 return(QVal) ->
-    fun(_QBin, QPos, Success, _Failure) ->  
-            Success(QVal, QPos)
+    fun(QBin, Success, _Failure) ->  
+            Success(QVal, QBin)
     end.
 
 bind(Parser, Fun) ->
-    fun(QBin, QPos, Success, Failure) ->
+    fun(QBin, Success, Failure) ->
             Parser(QBin,
-                   QPos,
-                   fun(QVal, QPos1) ->
+                   fun(QVal, QBin1) ->
                            Parser1 = Fun(QVal),
-                           Parser1(QBin, QPos1, Success, Failure)
+                           Parser1(QBin1, Success, Failure)
                    end,
                    Failure)
     end.
 
+%% bind(Parser, Fun) ->
+%%     fun(QBin, Success, Failure) ->
+%%             ?q(case ?s(Parser(
+%%                          QBin,
+%%                          fun(QVal, QBin1) ->
+%%                                  Parser1 = Fun(QVal),
+%%                                  Parser1(
+%%                                    QBin1,
+%%                                    Success,
+%%                                    fun(QErr, QBin2) ->
+%%                                            ?q({error, {?s(QErr), ?s(QBin2)}})
+%%                                    end)
+%%                          end,
+%%                          fun(QErr, QBin2) ->
+%%                                  ?q({error, {?s(QErr), ?s(QBin2)}})
+%%                          end)) of
+%%                    {error, {_Err, _Bin}} ->
+%%                        ?s(Failure(?r(_Err), ?r(_Bin)));
+%%                    OK ->
+%%                        OK
+%%                end)
+%%     end.
+
+
+
 fail(QErr) ->
-    fun(_QBin, QPos, _Success, Failure) ->  
-            Failure(QErr, QPos)
+    fun(QBin, _Success, Failure) ->  
+            Failure(QErr, QBin)
     end.
     
 
@@ -64,70 +90,93 @@ fail(QErr) ->
 %% Our parser builder is also MonadPlus
 %%
 mplus(Left, Right) ->
-    fun(QBin, QPos, Success, Failure) ->
+    fun(QBin, Success, Failure) ->
             ?q(case ?s(Left(QBin,
-                            QPos,
-                            fun(QVal1, QPos1) ->
-                                    ?q({ok, {?s(QVal1), ?s(QPos1)}})
+                            fun(QVal1, QBin1) ->
+                                    ?q({ok, {?s(QVal1), ?s(QBin1)}})
                             end,
-                            fun(_QErr1, _QPos1) ->
+                            fun(_QErr1, _QBin1) ->
                                     Right(QBin,
-                                          QPos,
-                                          fun(QVal2, QPos2) ->
-                                                  ?q({ok, {?s(QVal2), ?s(QPos2)}})
+                                          fun(QVal2, QBin2) ->
+                                                  ?q({ok, {?s(QVal2), ?s(QBin2)}})
                                           end,
                                           Failure)
                             end)) of
-                   {ok, {_Val, _Pos}} ->
-                       ?s(Success(?r(_Val), ?r(_Pos)));
+                   {ok, {_Val, _Bin}} ->
+                       ?s(Success(?r(_Val), ?r(_Bin)));
                    Err ->
                        Err
                end)
     end.
+%% mplus(Left, Right) ->
+%%     fun(QBin, Success, Failure) ->
+%%             Left(QBin,
+%%                  Success,
+%%                  fun(_QErr, QBin1) ->
+%%                          Right(QBin1, Success, Failure)
+%%                  end)
+%%     end.
+%% mplus(Left, Right) ->
+%%     fun(QBin, Success, Failure) ->
+%%             ?q(begin
+%%                    Succ = fun(_Val, _Bin) ->
+%%                                   ?s(Success(?r(_Val), ?r(_Bin)))
+%%                           end,
+%%                    ?s(Left(QBin,
+%%                            fun(QVal1, QBin1) ->
+%%                                    ?q(?s(?r(Succ))(?s(QVal1), ?s(QBin1)))
+%%                            end,
+%%                            fun(_QErr1, _QBin1) ->
+%%                                    Right(QBin,
+%%                                          fun(QVal2, QBin2) ->
+%%                                                  ?q(?s(?r(Succ))(?s(QVal2), ?s(QBin2)))
+%%                                          end,
+%%                                          Failure)
+%%                            end))
+%%                end)
+%%     end.
+
     
 
 %%
 %% Primitive parser combinators
 %%
-
-get_pos() ->
-    fun(_QBin, QPos, Success, _Failure) ->
-            Success(QPos, QPos)
-    end.
-
 get_bin() ->
-    fun(QBin, QPos, Success, _Failure) ->
-            Success(QBin, QPos)
+    fun(QBin, Success, _Failure) ->
+            Success(QBin, QBin)
     end.
+
             
 lift(QParser) ->
-    fun(QBin, QPos, Success, Failure) ->
-            ?q(case ?s(QParser)(?s(QBin), ?s(QPos)) of
-                   {ok, {_Val, _Pos1}} ->
-                       ?s(Success(?r(_Val), ?r(_Pos1)));
-                   {error, {_Err, _Pos2}} ->
-                       ?s(Failure(?r(_Err), ?r(_Pos2)))
+    fun(QBin, Success, Failure) ->
+            ?q(case ?s(QParser)(?s(QBin)) of
+                   {ok, {_Val, _Bin1}} ->
+                       ?s(Success(?r(_Val), ?r(_Bin1)));
+                   {error, {_Err, _Bin2}} ->
+                       ?s(Failure(?r(_Err), ?r(_Bin2)))
                end)
     end.
 
 
 match(QC) ->
-    fun(QBin, QPos, Success, Failure) ->
+    fun(QBin, Success, Failure) ->
             ?q(case ?s(QBin) of
-                   <<_:?s(QPos)/binary, ?s(QC), _/binary>> ->
-                       Pos = ?s(QPos) + ?s(qsize(?i(QC))),
-                       ?s(Success(QC, ?r(Pos)));
+                   <<?s(QC), Rest/binary>> ->
+                       ?s(Success(QC, ?r(Rest)));
                    _ ->
-                       ?s(Failure(?q({expected, <<?s(QC)>>}), QPos))
+                       ?s(Failure(?q({expected, <<?s(QC)>>}), QBin))
                end)
     end.
 
 matches(QCs) ->
-    fun(QBin, QPos, Success, Failure) ->
-            QFs = [ ?q(fun(<<_:?s(QPos)/binary, ?s(QC), _/binary>>) ->
-                               {ok, ?s(QC)}
+    matches(QCs, QCs).
+
+matches(QCs, QRs) ->
+    fun(QBin, Success, Failure) ->
+            QFs = [ ?q(fun(<<?s(QC), Rest/binary>>) ->
+                               {ok, {?s(QR), Rest}}
                        end)
-                    || QC <- QCs ],
+                    || {QC,QR} <- lists:zip(QCs, QRs) ],
             QD = ?q(fun(_) -> error end),
             Fun = fun(Arg, Qs) ->
                           Cs = lists:flatmap(
@@ -136,52 +185,73 @@ matches(QCs) ->
                           ?v(?re(erl_syntax:case_expr(Arg, Cs)))
                   end,
             ?q(case ?s(Fun(?i(QBin), ?i(sequence(QFs ++ [QD])))) of
-                   {ok, _Val} ->
-                       Pos = ?s(QPos) + 1,
-                       ?s(Success(?r(_Val), ?r(Pos)));
+                   {ok,  {_Val, _Bin}} ->
+                       ?s(Success(?r(_Val), ?r(_Bin)));
                    error ->
-                       ?s(Failure(?q(unexpected), QPos))
+                       ?s(Failure(?q(unexpected), QBin))
                end)
     end.
 
 
 guard(QExpFun) ->
-    fun(QBin, QPos, Success, Failure) ->
+    fun(QBin, Success, Failure) ->
             ?q(case ?s(QBin) of
-                   <<_:?s(QPos)/binary, C, _/binary>> when ?s(QExpFun(?r(C))) ->
-                       Pos = ?s(QPos) + 1,
-                       ?s(Success(?r(C), ?r(Pos)));
+                   <<C/utf8, Rest/binary>> when ?s(QExpFun(?r(C))) ->
+                       ?s(Success(?r(C), ?r(Rest)));
                    _ ->
-                       ?s(Failure(?q(does_not_satisfy), QPos))
+                       ?s(Failure(?q(does_not_satisfy), QBin))
                end)
     end.
-    
+
 
 many(Parser) ->
-    fun(QBin, QPos, Success, _) ->
-            QParser = ?q(fun(Pos) ->
-                                 ?s(Parser(QBin,
-                                           ?r(Pos),
-                                           fun(QVal, QPos1) ->
-                                                   ?q({ok, {?s(QVal), ?s(QPos1)}})
-                                           end,
-                                           fun(QError, QPos1) ->
-                                                   ?q({error, {?s(QError), ?s(QPos1)}})
-                                           end))
-                         end),
+    fun(QBin, Success, _) ->
             ?q(begin
-                   {_Vals, Pos1} = ?MODULE:many_iter(?s(QParser), ?s(QPos), []),
-                   ?s(Success(?r(_Vals), ?r(Pos1)))
+                   Step = 
+                       fun(Bin, Next, Acc) ->
+                               ?s(Parser(
+                                    ?r(Bin),
+                                    fun(QVal, QBin1) ->
+                                            ?q(?s(?r(Next))(
+                                                   ?s(QBin1),
+                                                   ?s(?r(Next)),
+                                                   [?s(QVal)|?s(?r(Acc))]))
+                                    end,
+                                    fun(_QErr, _QBin2) ->
+                                            ?q({lists:reverse(?s(?r(Acc))),
+                                                ?s(?r(Bin))})
+                                    end))
+                       end,
+                   {_Vals, _BinN} = Step(?s(QBin), Step, []),
+                   ?s(Success(?r(_Vals), ?r(_BinN)))
                end)
     end.
 
-many_iter(Parser, Pos, Acc) ->
-    case Parser(Pos) of
-        {ok, {Val, Pos1}} ->
-            many_iter(Parser, Pos1, [Val|Acc]);
-        {error, _} ->
-            {lists:reverse(Acc), Pos}
-    end.
+%% many(Parser) ->
+%%     fun(QBin, Success, _) ->
+%%             QParser = ?q(fun(Bin) ->
+%%                                  ?s(Parser(?r(Bin),
+%%                                            fun(QVal, QBin1) ->
+%%                                                    ?q({ok, {?s(QVal), ?s(QBin1)}})
+%%                                            end,
+%%                                            fun(QErr, QBin2) ->
+%%                                                    ?q({error, {?s(QErr), ?s(QBin2)}})
+%%                                            end))
+%%                          end),
+%%             ?q(begin
+%%                    {_Vals, Pos1} = ?MODULE:many_iter(?s(QParser), ?s(QBin), []),
+%%                    ?s(Success(?r(_Vals), ?r(Pos1)))
+%%                end)
+%%     end.
+
+
+%% many_iter(Parser, Bin, Acc) ->
+%%     case Parser(Bin) of
+%%         {ok, {Val, Bin1}} ->
+%%             many_iter(Parser, Bin1, [Val|Acc]);
+%%         {error, _} ->
+%%             {lists:reverse(Acc), Bin}
+%%     end.
 
 many1(Parser) ->
     bind(Parser,
@@ -193,100 +263,169 @@ many1(Parser) ->
          end).
 
 fold(Parser, QFun, QAcc) ->
-    fun(QBin, QPos, Success, _) ->
-            QParser = ?q(fun(Pos) ->
-                                 ?s(Parser(QBin,
-                                           ?r(Pos),
-                                           fun(QVal, QPos1) ->
-                                                   ?q({ok, {?s(QVal), ?s(QPos1)}})
-                                           end,
-                                           fun(QError, QPos1) ->
-                                                   ?q({error, {?s(QError), ?s(QPos1)}})
-                                           end))
+    fun(QBin, Success, _) ->
+            QParser =
+                ?q(fun(Bin) ->
+                           ?s(Parser(
+                                ?r(Bin),
+                                fun(QVal, QBin1) ->
+                                        ?q({ok, {?s(QVal), ?s(QBin1)}})
+                                end,
+                                fun(QErr, QBin2) ->
+                                        ?q({error, {?s(QErr), ?s(QBin2)}})
+                                end))
                          end),
             ?q(begin
-                   {_Vals, Pos1} = ?MODULE:fold_iter(?s(QParser), ?s(QPos), ?s(QFun), ?s(QAcc)),
-                   ?s(Success(?r(_Vals), ?r(Pos1)))
+                   {_Vals, _BinN} = 
+                       ?MODULE:fold_iter(
+                          ?s(QParser), ?s(QBin),
+                          ?s(QFun), ?s(QAcc)),
+                   ?s(Success(?r(_Vals), ?r(_BinN)))
                end)
     end.
     
-fold_iter(Parser, Pos, Fun, Acc) ->
-    case Parser(Pos) of
-        {ok, {Val, Pos1}} ->
-            fold_iter(Parser, Pos1, Fun, Fun(Val, Acc));
+fold_iter(Parser, Bin, Fun, Acc) ->
+    case Parser(Bin) of
+        {ok, {Val, Bin1}} ->
+            fold_iter(Parser, Bin1, Fun, Fun(Val, Acc));
         {error, _} ->
-            {Acc, Pos}
+            {Acc, Bin}
     end.
 
+
+%% many_acc(Parser, QAcc) ->
+%%     fun(QBin, Success, _) ->
+%%             QParser =
+%%                 ?q(fun(Bin) ->
+%%                            ?s(Parser(
+%%                                 ?r(Bin),
+%%                                 fun(QVal, QBin1) ->
+%%                                         ?q({ok, {?s(QVal), ?s(QBin1)}})
+%%                                 end,
+%%                                 fun(QErr, QBin2) ->
+%%                                         ?q({error, {?s(QErr), ?s(QBin2)}})
+%%                                 end))
+%%                    end),
+%%             ?q(begin
+%%                    {_Vals, _BinN} =
+%%                        ?MODULE:many_acc_iter(
+%%                           ?s(QParser), ?s(QBin), ?s(QAcc)),
+%%                    ?s(Success(?r(_Vals), ?r(_BinN)))
+%%                end)
+%%     end.
+
+%% many_acc_iter(Parser, Bin, Acc) ->
+%%     case Parser(Bin) of
+%%         {ok, {Val, Bin1}} ->
+%%             many_acc_iter(Parser, Bin1, [Val|Acc]);
+%%         {error, _} ->
+%%             {Acc, Bin}
+%%     end.
 
 many_acc(Parser, QAcc) ->
-    fun(QBin, QPos, Success, _) ->
-            QParser = ?q(fun(Pos) ->
-                                 ?s(Parser(QBin,
-                                           ?r(Pos),
-                                           fun(QVal, QPos1) ->
-                                                   ?q({ok, {?s(QVal), ?s(QPos1)}})
-                                           end,
-                                           fun(QError, QPos1) ->
-                                                   ?q({error, {?s(QError), ?s(QPos1)}})
-                                           end))
-                         end),
+    fun(QBin, Success, _) ->
             ?q(begin
-                   {_Vals, Pos1} = ?MODULE:many_acc_iter(?s(QParser), ?s(QPos), ?s(QAcc)),
-                   ?s(Success(?r(_Vals), ?r(Pos1)))
-               end)
-    end.
-
-many_acc_iter(Parser, Pos, Acc) ->
-    case Parser(Pos) of
-        {ok, {Val, Pos1}} ->
-            many_acc_iter(Parser, Pos1, [Val|Acc]);
-        {error, _} ->
-            {Acc, Pos}
-    end.
-
-skip_while(QGuardFun) ->
-    fun(QBin, QPos, Success, _) ->
-            ?q(begin
-                   SkipWhileIter =
-                       fun(Pos, Next) ->
-                               case ?s(QBin) of
-                                   <<_:Pos/binary, C, _/binary>>
-                                     when ?s(QGuardFun(?r(C))) ->
-                                       Next(Pos + 1, Next);
-                                   _ ->
-                                       Pos
-                               end
+                   Step = 
+                       fun(Bin, Next, Acc) ->
+                               ?s(Parser(
+                                    ?r(Bin),
+                                    fun(QVal, QBin1) ->
+                                            ?q(?s(?r(Next))(
+                                                   ?s(QBin1),
+                                                   ?s(?r(Next)),
+                                                   [?s(QVal)|?s(?r(Acc))]))
+                                    end,
+                                    fun(_QErr, _QBin2) ->
+                                            ?q({?s(?r(Acc)),
+                                                ?s(?r(Bin))})
+                                    end))
                        end,
-                   Pos1 = SkipWhileIter(?s(QPos), SkipWhileIter),
-                   ?s(Success(?r(Pos1), ?r(Pos1)))
+                   {_Vals, _BinN} = Step(?s(QBin), Step, ?s(QAcc)),
+                   ?s(Success(?r(_Vals), ?r(_BinN)))
                end)
     end.
-    
 
-skip_many(Parser) ->
-    fun(QBin, QPos, Success, _) ->
-            ?q(begin
-                   Iter =
-                       fun(PosFixMe, Next) ->
-                               ?s(Parser(QBin, ?r(PosFixMe),
-                                         fun(_, QPos1) ->
-                                                 ?q(?s(?r(Next))(?s(QPos1), ?s(?r(Next))))
-                                         end,
-                                         fun(_, QPos1) ->
-                                                 QPos1
-                                         end))
-                       end,
-                   Pos1 = Iter(?s(QPos), Iter),
-                   ?s(Success(?r(Pos1), ?r(Pos1)))
-               end)
-    end.
 
 skip_many1(Parser) ->
     bind(Parser,
          fun(_) ->
                  skip_many(Parser)
          end).
+
+%% skip_many(Parser) ->
+%%     fun(QBin, Success, _) ->
+%%             QStep =
+%%                 ?q(fun(Bin) ->
+%%                            ?s(Parser(
+%%                                 ?r(Bin),
+%%                                 fun(_QVal, QBin1) ->
+%%                                         ?q({ok, {ok, ?s(QBin1)}})
+%%                                 end,
+%%                                 fun(_QErr, _QBin2) ->
+%%                                         ?q({error, {stop, stop}})
+%%                                 end))
+%%                    end),
+%%             Success(
+%%               ?q(ok),
+%%               ?q(?MODULE:skip_many_iter(?s(QStep), ?s(QBin))))
+%%     end.
+
+%% skip_many_iter(ParserFun, Bin) ->
+%%     case ParserFun(Bin) of
+%%         {ok, {_, Bin1}} ->
+%%             skip_many_iter(ParserFun, Bin1);
+%%         {error, _} ->
+%%             Bin
+%%     end.
+
+skip_many(Parser) ->
+    fun(QBin, Success, _) ->
+            ?q(begin
+                   Step = 
+                       fun(Bin, Next) ->
+                               ?s(Parser(
+                                    ?r(Bin),
+                                    fun(_QVal, QBin1) ->
+                                            ?q(?s(?r(Next))(
+                                                   ?s(QBin1),
+                                                   ?s(?r(Next))))
+                                    end,
+                                    fun(_QErr, _QBin2) ->
+                                            ?q({ok, ?s(?r(Bin))})
+                                    end))
+                       end,
+                   {_, _BinN} = Step(?s(QBin), Step),
+                   ?s(Success(?q(ok), ?r(_BinN)))
+               end)
+    end.
+
+
+count(QN, Parser) ->
+    fun(QBin, Success, Failure) ->
+            ?q(begin
+                   Step = 
+                       fun(_Bin1, _, _Acc1, I) when I =< 0 ->
+                               ?s(Success(
+                                    ?q(lists:reverse(?s(?r(_Acc1)))),
+                                    ?r(_Bin1)));
+                          (_Bin2, Next, _Acc2, I) ->
+                               ?s(Parser(
+                                    ?r(_Bin2),
+                                    fun(QVal, QBin1) ->
+                                            ?q(?s(?r(Next))(
+                                                   ?s(QBin1),
+                                                   ?s(?r(Next)),
+                                                   [?s(QVal)|?s(?r(_Acc2))],
+                                                   ?s(?r(I)) - 1))
+                                    end,
+                                    fun(QErr, QBin2) ->
+                                            Failure(QErr, QBin2)
+                                    end))
+                       end,
+                   Step(?s(QBin), Step, [], ?s(QN))
+               end)
+    end.
+    
 
 
 option(Parser, Default) ->
@@ -308,18 +447,6 @@ right(Left, Right) ->
          end).
 
 %%
-%% Utils
-%%
-qsize({string, _, S}) ->
-    ?v(?re(erl_syntax:abstract(length(S))));
-qsize({integer, _, _}) ->
-    ?q(1);
-qsize({char, _, _}) ->
-    ?q(1);
-qsize(E) ->
-    error({unsupported_type, E}).
-
-%%
 %% Additional monadic functions
 %%
 sequence([]) ->
@@ -333,17 +460,29 @@ sequence([Q|Qs]) ->
 %% Utilify function for conversion of meta-parser to parser body (as a quote)
 %%
 inst_body(Parser, QBin) ->
-    inst_body(Parser, QBin, ?q(0)).
+    Parser(
+      QBin,
+      fun(QVal, QBin1) ->
+              ?q({ok,
+                  {?s(QVal),
+                   byte_size(?s(QBin)) - byte_size(?s(QBin1))}})
+      end,
+      fun(QErr, QBin2) ->
+              ?q({error,
+                  {?s(QErr),
+                   byte_size(?s(QBin)) - byte_size(?s(QBin2))}})
+      end).
 
-inst_body(Parser, QBin, QPos) ->
-    Parser(QBin,
-           QPos,
-           fun(QVal, QPos1) ->
-                   ?q({ok, {?s(QVal), ?s(QPos1)}})
-           end,
-           fun(QError, QPos1) ->
-                   ?q({error, {?s(QError), ?s(QPos1)}})
-           end).
+to_parser(Parser, QBin) ->
+    Parser(
+      QBin,
+      fun(QVal, QBin1) ->
+              ?q({ok, {?s(QVal), ?s(QBin1)}})
+      end,
+      fun(QErr, QBin2) ->
+              ?q({error, {?s(QErr), ?s(QBin2)}})
+      end).
+
 
 %%
 %% JSON parsers
@@ -355,8 +494,8 @@ whitespace() ->
 null() ->
     right(match(?q("null")), return(?q(undefined))).
 
-null_p(Bin, Pos) ->
-    ?s(inst_body(null(), ?r(Bin), ?r(Pos))).
+null_p(Bin) ->
+    ?s(to_parser(null(), ?r(Bin))).
 
 
 nullable(Parser) ->
@@ -370,8 +509,8 @@ boolean() ->
       right(match(?q("true")), return(?q(true))),
       right(match(?q("false")), return(?q(false)))).
 
-boolean_p(Bin, Pos) ->
-    ?s(inst_body(boolean(), ?r(Bin), ?r(Pos))).
+boolean_p(Bin) ->
+    ?s(to_parser(boolean(), ?r(Bin))).
 
 
 digit() ->
@@ -386,6 +525,13 @@ digit1_9() ->
 
 digit0() ->
     match(?q($0)).
+
+digit_hex() ->
+    guard(fun(QC) ->
+                  ?q(?s(QC) >= $0 andalso ?s(QC) =< $9
+                     orelse ?s(QC) >= $A andalso ?s(QC) =< $F
+                     orelse ?s(QC) >= $a andalso ?s(QC) =< $f)
+          end).
 
 positive(Acc) ->
     bind(digit1_9(),
@@ -486,8 +632,8 @@ integer() ->
                              lists:reverse(?s(QDs)))))
          end).
 
-integer_p(Bin, Pos) ->
-    ?s(inst_body(integer(), ?r(Bin), ?r(Pos))).
+integer_p(Bin) ->
+    ?s(to_parser(integer(), ?r(Bin))).
 
 
 float() ->
@@ -497,15 +643,13 @@ float() ->
                              lists:reverse(?s(QDs)))))
          end).
 
-float_p(Bin, Pos) ->
-    ?s(inst_body(float(), ?r(Bin), ?r(Pos))).
+float_p(Bin) ->
+    ?s(to_parser(float(), ?r(Bin))).
 
 
 char() ->
     guard(fun(QC)->
-                  ?q(?s(QC) =/= $"
-                     andalso ?s(QC) =/= $\\
-                     andalso ?s(QC) < 128)
+                  ?q(?s(QC) =/= $" andalso ?s(QC) =/= $\\)
           end).
 
 string() ->
@@ -527,50 +671,79 @@ string() ->
 
 substring() ->
     bind(
-      get_pos(),
-      fun(P0) ->
+      get_bin(),
+      fun(B0) ->
               bind(
                 skip_many1(char()),
                 fun(_) ->
                         bind(
-                          get_pos(),
-                          fun(P1) ->
-                                  bind(
-                                    get_bin(),
-                                    fun(QBin) ->
-                                            return(
-                                              ?q(binary:part(
-                                                    ?s(QBin), ?s(P0),
-                                                    ?s(P1)-?s(P0))))
-                                    end)
+                          get_bin(),
+                          fun(B1) ->
+                                  return(
+                                    ?q(binary:part(
+                                         ?s(B0), 0,
+                                         byte_size(?s(B0))
+                                         - byte_size(?s(B1)))))
                           end)
                 end)
       end).
 
-string_p(Bin, Pos) ->
-    ?s(inst_body(string(), ?r(Bin), ?r(Pos))).
+string_p(Bin) ->
+    ?s(to_parser(string(), ?r(Bin))).
 
 
 escape() ->
-    bind(match(?q($\\)),
-         fun(_) ->
-                 mplus(
-                   bind(match(?q($")),
-                        fun(_) ->
-                                return(?q(<<$">>))
-                        end),
-                   bind(match(?q($\\)),
-                        fun(_) ->
-                                return(?q(<<$\\>>))
-                        end))
-         end).
+    right(
+      match(?q($\\)),
+      mplus(
+        matches(
+          [?q($"), ?q($\\), ?q($/), ?q($b), ?q($f), ?q($n), ?q($r), ?q($t)],
+          [?q($"), ?q($\\), ?q($/), ?q($\b), ?q($\f), ?q($\n), ?q($\r), ?q($\t)]),
+        right(
+          match(?q($u)),
+          uhex()))).
+
+uhex() ->
+    bind(
+      count(?q(4), digit_hex()),
+      fun(Cs) ->
+              return(?q(<<(list_to_integer(?s(Cs), 16))/utf8>>))
+      end).
+    
 
 ws() ->
     lift(?q(?MODULE:ws_p)).
+    %% skip_many(whitespace()).
 
-ws_p(Bin, Pos) ->
-    ?s(inst_body(skip_many(whitespace()),
-                 ?r(Bin), ?r(Pos))).
+%% ws_p(Bin) ->
+%%     ?s(to_parser(
+%%          skip_many(whitespace()),
+%%          ?r(Bin))).
+
+%% ws_p(<<$\s, Rest/binary>>) ->
+%%     ws_p(Rest);
+%% ws_p(<<$\t, Rest/binary>>) ->
+%%     ws_p(Rest);
+%% ws_p(<<$\r, Rest/binary>>) ->
+%%     ws_p(Rest);
+%% ws_p(<<$\n, Rest/binary>>) ->
+%%     ws_p(Rest);
+%% ws_p(Bin) ->
+%%     {ok, {ok, Bin}}.
+
+ws_p(Inp) ->
+    case Inp of
+        <<$\s, Rest/binary>> ->
+            ws_p(Rest);
+        <<$\t, Rest/binary>> ->
+            ws_p(Rest);
+        <<$\r, Rest/binary>> ->
+            ws_p(Rest);
+        <<$\n, Rest/binary>> ->
+            ws_p(Rest);
+        _ ->
+            {ok, {ok, Inp}}
+    end.
 
 
 comma_delim() ->
@@ -618,25 +791,23 @@ skip_object() ->
                          comma_delim())),
                   fun(_) ->
                           right(match(?q($})),
-                                get_pos())
+                                return(?q(ok)))
                   end))
       end).
 
 p_matches(SPs) ->
-    fun(QBin, QPos, Success, Failure) ->
-            QFs = [ ?q(fun(<<_:?s(QPos)/binary, $", ?s(S), $", _/binary>>) ->
-                               Pos1 = ?s(QPos) + size(<<$",?s(S), $">>),
-                               ?s(P(QBin,
-                                    ?r(Pos1),
-                                    fun(QVal, QPos1) ->
-                                            ?q({ok, {?s(QVal), ?s(QPos1)}})
+    fun(QBin, Success, Failure) ->
+            QFs = [ ?q(fun(<<$", ?s(S), $", Rest/binary>>) ->
+                               ?s(P(?r(Rest),
+                                    fun(QVal, QBin1) ->
+                                            ?q({ok, {?s(QVal), ?s(QBin1)}})
                                     end,
-                                    fun(QErr, QPos2) ->
-                                            ?q({error, {?s(QErr), ?s(QPos2)}})
+                                    fun(QErr, QBin2) ->
+                                            ?q({error, {?s(QErr), ?s(QBin2)}})
                                     end))
                        end)
                     || {S,P} <- SPs ],
-            QD = ?q(fun(_) -> {error, {none_matched, ?s(QPos)}} end),
+            QD = ?q(fun(_) -> {error, {none_matched, ?s(QBin)}} end),
             Fun = fun(Arg, Qs) ->
                           Cs = lists:flatmap(
                                  fun erl_syntax:fun_expr_clauses/1,
@@ -644,10 +815,10 @@ p_matches(SPs) ->
                           ?v(?re(erl_syntax:case_expr(Arg, Cs)))
                   end,
             ?q(case ?s(Fun(?i(QBin), ?i(sequence(QFs ++ [QD])))) of
-                   {ok, {_Val, _Pos1}} ->
-                       ?s(Success(?r(_Val), ?r(_Pos1)));
-                   {error, {_Err, _Pos2}} ->
-                       ?s(Failure(?r(_Err), ?r(_Pos2)))
+                   {ok, {_Val, _Bin1}} ->
+                       ?s(Success(?r(_Val), ?r(_Bin1)));
+                   {error, {_Err, _Bin2}} ->
+                       ?s(Failure(?r(_Err), ?r(_Bin2)))
                end)
     end.
     
@@ -659,13 +830,13 @@ pair(F, P, N) ->
         match(?q($:)),
         right(
           ws(),
-          fun(QBin, QPos, Success, Failure) ->
-                  P(QBin, QPos,
-                    fun(QVal, QPos1) ->
-                            Success(?q({?s(N), ?s(QVal)}), QPos1)
+          fun(QBin, Success, Failure) ->
+                  P(QBin,
+                    fun(QVal, QBin1) ->
+                            Success(?q({?s(N), ?s(QVal)}), QBin1)
                     end,
-                    fun(QErr, QPos2) ->
-                            Failure(?q({<<?s(F)>>, ?s(QErr)}), QPos2)
+                    fun(QErr, QBin2) ->
+                            Failure(?q({<<?s(F)>>, ?s(QErr)}), QBin2)
                     end)
           end))).
 
@@ -686,8 +857,8 @@ skip_object_field() ->
             ws(),
             lift(?q(?MODULE:skip_json_p)))))).
 
-skip_object_field_p(Bin, Pos) ->
-    ?s(inst_body(skip_object_field(), ?r(Bin), ?r(Pos))).
+skip_object_field_p(Bin) ->
+    ?s(to_parser(skip_object_field(), ?r(Bin))).
 
 
 
@@ -704,29 +875,34 @@ skip_json() ->
              array(lift(?q(?MODULE:skip_json_p))),
              skip_object()))))).
 
-skip_json_p(Bin, Pos) ->
-    ?s(inst_body(skip_json(), ?r(Bin), ?r(Pos))).
+skip_json_p(Bin) ->
+    ?s(to_parser(skip_json(), ?r(Bin))).
 
 any_json() ->
     bind(
       get_bin(),
-      fun(Bin) ->
+      fun(B0) ->
               bind(
-                get_pos(),
-                fun(P0) ->
-                        bind(
-                          right(
-                            lift(?q(?MODULE:skip_json_p)),
-                            get_pos()),
-                          fun(P1) ->
-                                  return(
-                                   ?q(binary:part(
-                                       ?s(Bin),
-                                       ?s(P0),
-                                       ?s(P1) - ?s(P0))))
-                          end)
+                right(
+                  lift(?q(?MODULE:skip_json_p)),
+                  get_bin()),
+                fun(B1) ->
+                        return(
+                          ?q(binary:part(
+                               ?s(B0), 0,
+                               byte_size(?s(B0))
+                               - byte_size(?s(B1)))))
                 end)
       end).
 
-any_json_p(Bin, Pos) ->
-    ?s(inst_body(any_json(), ?r(Bin), ?r(Pos))).
+any_json_p(Bin) ->
+    ?s(to_parser(any_json(), ?r(Bin))).
+
+
+tt(Inp) ->
+    ?s(to_parser(uhex(),
+                 ?r(Inp))).
+
+tt2(Inp) ->
+    ?s(to_parser(escape(),
+                 ?r(Inp))).

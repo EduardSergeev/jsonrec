@@ -12,4 +12,4 @@
          skip_while/1,
          option/2,
 
-         inst_body/2, inst_body/3]).
+         inst_body/2, to_parser/2]).

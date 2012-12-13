@@ -134,11 +134,11 @@ decode_test_() ->
 decode_error_test_() ->
     [{"Invalid format: missing {",
       ?_assertMatch(
-         {error, {{expected, <<"{">>}, 0}},
+         {error, {{expected, <<"{">>}, <<"\"Id\":42}">>}},
          decode(rec0, <<"\"Id\":42}">>))},
      {"Invalid format: missing }",
       ?_assertMatch(
-         {error, {{expected, <<"}">>}, 8}},
+         {error, {{expected, <<"}">>}, <<>>}},
          decode(rec0, <<"{\"Id\":42">>))}].
      %% {"Invalid format: missing deilimiter :",
      %%  ?_assertMatch(
@@ -192,6 +192,36 @@ rec3_test() ->
          rec = #rec1{id = 11}},
     decode_encode(rec3, Rec0),
     decode_encode(rec3, Rec1).
+
+
+%%
+%% 'name_conv' option test
+%%
+to_upper_json(#rec0{} = Rec) ->
+    ?encode_gen(#rec0{}, Rec,
+                [{name_handler, fun jr_test_remote:to_upper_string/1}]).
+
+from_upper_json(Struct) ->
+    ?decode_gen(#rec0{}, Struct,
+                [{name_handler,
+                  fun(Field) ->
+                          Str = atom_to_list(Field),
+                          string:to_upper(Str)
+                  end}]).
+    
+name_conv_test() ->
+    Rec = #rec0
+        {id = 42,
+         atom = some_atom,
+         boolean = false},
+    Bin = list_to_binary(to_upper_json(Rec)),
+    ?assertEqual(<<"{\"ID\":42,"
+                   "\"STATUS\":\"new\","
+                   "\"ATOM\":\"some_atom\","
+                   "\"BOOLEAN\":false}">>,
+                 Bin),
+    Restored = from_upper_json(Bin),
+    ?assertEqual({ok, Rec}, Restored).
 
 
 %%
