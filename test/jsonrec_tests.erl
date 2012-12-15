@@ -21,7 +21,8 @@
         status = new :: status(),
         atom :: atom(),
         binary :: binary(),
-        boolean :: boolean()}).
+        boolean :: boolean(),
+        another_field = <<>> :: binary()}).
 
 -record(rec1,
         {id = 0 :: integer(),
@@ -99,10 +100,10 @@ decode_test_() ->
       ?_test(
          begin
              Inp = <<"{
-                       \"Id\":42,
-                       \"Atom\" : \"status\",
-                       \"Binary\"   :\"Some string\",
-                       \"Boolean\": true
+                       \"id\":42,
+                       \"atom\" : \"status\",
+                       \"binary\"   :\"Some string\",
+                       \"boolean\": true
                       }">>,
              ?assertMatch(
                 {ok, #rec0{id = 42, status = new,
@@ -114,14 +115,14 @@ decode_test_() ->
         begin
             Inp =
                 <<"{
-                    \"Id\":1,
-                    \"Rec\": 
+                    \"id\":1,
+                    \"rec\": 
                      {
-                      \"Id\":2,
-                      \"Status\"  : \"old\",
-                      \"Atom\" : \"status\",
-                      \"Binary\"   :\"\",
-                      \"Boolean\": false
+                      \"id\":2,
+                      \"status\"  : \"old\",
+                      \"atom\" : \"status\",
+                      \"binary\"   :\"\",
+                      \"boolean\": false
                      }
                   }">>,
             ?assertMatch(
@@ -134,12 +135,12 @@ decode_test_() ->
 decode_error_test_() ->
     [{"Invalid format: missing {",
       ?_assertMatch(
-         {error, {{expected, <<"{">>}, <<"\"Id\":42}">>}},
-         decode(rec0, <<"\"Id\":42}">>))},
+         {error, {{expected, <<"{">>}, <<"\"id\":42}">>}},
+         decode(rec0, <<"\"id\":42}">>))},
      {"Invalid format: missing }",
       ?_assertMatch(
          {error, {{expected, <<"}">>}, <<>>}},
-         decode(rec0, <<"{\"Id\":42">>))}].
+         decode(rec0, <<"{\"id\":42">>))}].
      %% {"Invalid format: missing deilimiter :",
      %%  ?_assertMatch(
      %%     {error, {{expected, <<":">>}, 5}},
@@ -181,7 +182,7 @@ rec3_decode_test() ->
         {id = 1,
          type = rec1,
          rec = #rec1{id = 2}},
-    Json = <<"{\"Id\":1,\"Type\":\"rec1\",\"Rec\":{\"Id\":2}}">>,
+    Json = <<"{\"id\":1,\"type\":\"rec1\",\"rec\":{\"id\":2}}">>,
     ?assertMatch({ok, Rec}, decode(rec3, Json)).
 
 rec3_test() ->
@@ -193,6 +194,12 @@ rec3_test() ->
     decode_encode(rec3, Rec0),
     decode_encode(rec3, Rec1).
 
+whitespace_test() ->
+    Rec = #rec3{id = 1},
+    Json = list_to_binary(encode(Rec)),
+    Json1 = <<"\n", Json/binary>>,
+    ?assertMatch({ok, Rec}, decode(rec3, Json1)).
+    
 
 %%
 %% 'name_conv' option test
@@ -209,7 +216,7 @@ from_upper_json(Struct) ->
                           string:to_upper(Str)
                   end}]).
     
-name_conv_test() ->
+to_upper_conv_test() ->
     Rec = #rec0
         {id = 42,
          atom = some_atom,
@@ -218,9 +225,35 @@ name_conv_test() ->
     ?assertEqual(<<"{\"ID\":42,"
                    "\"STATUS\":\"new\","
                    "\"ATOM\":\"some_atom\","
-                   "\"BOOLEAN\":false}">>,
+                   "\"BOOLEAN\":false,"
+                   "\"ANOTHER_FIELD\":\"\"}">>,
                  Bin),
     Restored = from_upper_json(Bin),
+    ?assertEqual({ok, Rec}, Restored).
+
+
+to_pascal_json(#rec0{} = Rec) ->
+    ?encode_gen(#rec0{}, Rec,
+                [{name_handler, fun jsonrec:atom_to_pascal/1}]).
+
+from_pascal_json(Bin) ->
+    ?decode_gen(#rec0{}, Bin,
+                [{name_handler, fun jsonrec:atom_to_pascal/1}]).
+
+to_pascal_conv_test() ->
+    Rec = #rec0
+        {id = 42,
+         atom = some_atom,
+         boolean = false,
+         another_field = <<"B">>},
+    Bin = list_to_binary(to_pascal_json(Rec)),
+    ?assertEqual(<<"{\"Id\":42,"
+                   "\"Status\":\"new\","
+                   "\"Atom\":\"some_atom\","
+                   "\"Boolean\":false,"
+                   "\"AnotherField\":\"B\"}">>,
+                 Bin),
+    Restored = from_pascal_json(Bin),
     ?assertEqual({ok, Rec}, Restored).
 
 

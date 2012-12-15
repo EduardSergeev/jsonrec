@@ -66,7 +66,7 @@ encode_gen(Attr, QArg, Type, Info, Options) ->
     Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
     Subs1 = [norm_type(T) || T <- Subs],                      
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
-                                  fun atom_to_mslist/1),
+                                  fun atom_to_list/1),
     Attrs = meta:reify_attributes(Attr, ?e(Info)),
     Mps = #mps{
       defs = [],
@@ -283,18 +283,6 @@ encode_basic_pred(Type, FunName, QGuardFun, Mps) ->
            end,
     add_fun_def(Type, none, Mps, FunVFun, GFun).
 
-
-%%
-%% Default data conversion functions
-%%
-%% atom_to_msbinary(Atom) ->
-%%     list_to_binary(atom_to_mslist(Atom)).
-
-atom_to_mslist(Atom) when is_atom(Atom) ->
-    List = atom_to_list(Atom),
-    Parts = string:tokens(List, "_"),
-    Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
-    lists:concat(Capitalized). 
 
 %%
 %% JSON emitter functions 

@@ -4,7 +4,7 @@
 -include("parsers.hrl").
 
 
--export([decode_gen/4]).
+-export([decode_gen/4, decode_gen_parser/4]).
 
 -export([format_error/1]).
 
@@ -50,29 +50,38 @@
 -record(def_funs,
         {parser}).
 
-decode_gen(QStr, Type, Info, Options) ->
-    code_gen(decode, QStr, Type, Info, Options).
+-define(DECODE_ATTR, decode).
 
 
-code_gen(Attr, QArg, Type, Info, Options) ->
+decode_gen(QBin, Type, Info, Options) ->
+    Parser = code_gen(Type, Info, Options),
+    ?q(case ?s(to_parser(Parser, QBin)) of
+           {ok, {Val, _}} ->
+               {ok, Val};
+           {error, _} = E ->
+               E
+       end).
+
+decode_gen_parser(QBin, Type, Info, Options) ->
+    Parser = code_gen(Type, Info, Options),
+    to_parser(Parser, QBin).
+
+
+code_gen(Type, Info, Options) ->
     Type1 = norm_type_quote(?e(Type)),
     Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
     Subs1 = [norm_type(T) || T <- Subs],                      
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
-                                  fun atom_to_mslist/1),
-    Attrs = meta:reify_attributes(Attr, ?e(Info)),
+                                  fun erlang:atom_to_list/1),
+    Attrs = meta:reify_attributes(?DECODE_ATTR, ?e(Info)),
     Mps = #mps{
       defs = [],
       subs = Subs1,
       attrs = Attrs,
       name_conv = NameFun},
     {Parser, _} = gen_decode(type_ref(Type1), ?e(Info), Mps),
-    ?q(case ?s(to_parser(Parser, QArg)) of
-           {ok, {Val, _}} ->
-               {ok, Val};
-           {error, _} = E ->
-               E
-       end).
+    right(lift(?q(parsers:ws_p)), Parser).
+
 
 gen_decode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
@@ -237,17 +246,6 @@ code_underlying({_, Args} = Type, Info, Mps) ->
 code_basic(Type, ParserFun, Mps) ->
     add_fun_def(Type, lift(ParserFun), Mps).
 
-%%
-%% Default data conversion functions
-%%
-%% atom_to_msbinary(Atom) ->
-%%     list_to_binary(atom_to_mslist(Atom)).
-
-atom_to_mslist(Atom) when is_atom(Atom) ->
-    List = atom_to_list(Atom),
-    Parts = string:tokens(List, "_"),
-    Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
-    lists:concat(Capitalized). 
 
 %%
 %% Utils

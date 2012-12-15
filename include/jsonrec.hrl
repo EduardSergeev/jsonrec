@@ -2,8 +2,8 @@
 -include_lib("meta/include/meta.hrl").
 
 -import(jsonrec_encode, [encode_gen/4]).
--import(jsonrec_decode, [decode_gen/4]).
--meta([encode_gen/4, decode_gen/4]).
+-import(jsonrec_decode, [decode_gen/4, decode_gen_parser/4]).
+-meta([encode_gen/4, decode_gen/4, decode_gen_parser/4]).
 
 
 -define(encode_gen(Type, Record, Options),
@@ -18,3 +18,9 @@
 
 -define(decode_gen(Type, Struct),
         ?decode_gen(Type, Struct, [])).
+
+-define(decode_gen_parser(Type, Struct, Options),
+        decode_gen_parser(?r(Struct), Type, ?v(meta:reify()), ?v(Options))).
+
+-define(decode_gen_parser(Type, Struct),
+        ?decode_gen_parser(Type, Struct, [])).
