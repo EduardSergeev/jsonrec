@@ -136,11 +136,16 @@ gen_encode({atom, Atom} = Type, _Info, Mps) ->
            end,
     add_fun_def(Type, none, Mps, VFun, GFun);
 
-%% gen_encode({any, []} = Type, _Info, Mps) ->
-%%     GFun = fun(_Item) ->
-%%                    ?q(true)
-%%            end,
-%%     code_basic(Type, GFun, Mps);
+gen_encode({any, []} = Type, _Info, Mps) ->
+    FunVFun = fun(_) ->
+                   fun(Item) ->
+                           Item
+                   end
+           end,
+    GFun = fun(Item) ->
+                   ?q(is_binary(?s(Item)))
+           end,
+    add_fun_def(Type, none, Mps, FunVFun, GFun);
 
 gen_encode({_UserType, _Args} = Type, Info, Mps) ->
     encode_underlying(Type, Info, Mps);

@@ -28,7 +28,8 @@
         {id = 0 :: integer(),
          rec = #rec0{id = 42} :: #rec0{},
          recs = [] :: my_list(#rec0{}),
-         fi = <<>> :: binary()}).
+         fi = <<>> :: binary(),
+         any :: any()}).
 
 -type my_rec() :: #rec1{}.
 -type my_atom() :: some_atom.
@@ -256,6 +257,23 @@ to_pascal_conv_test() ->
     Restored = from_pascal_json(Bin),
     ?assertEqual({ok, Rec}, Restored).
 
+nested_error_test() ->
+    Json = <<"{\"id\": 42,"
+             " \"recs\": ["
+             "  {\"id\": 1},"
+             "  {\"id\": 2,"
+             "   \"binary\": \"\\g\"}]}">>,
+    ?assertMatch({error, _},
+                 decode(rec1, Json)).
+
+anyjson_error_test() ->
+    Json = <<"{\"id\": 42,"
+             " \"any\": ["
+             "  {\"id\": 1},"
+             "  {\"id\": 2,"
+             "   \"binary\": \"\\g\"}]}">>,
+    ?assertMatch({error, _},
+                 decode(rec1, Json)).
 
 %%
 %% Round-trip encoding/decoding
