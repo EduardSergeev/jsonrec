@@ -295,6 +295,8 @@ string_test_() ->
                    P(<<"\"Simple\"">>)),
      ?_assertMatch({ok,{<<"\" \\ / \b \f \n \r \t ", 1024/utf8>>, <<>>}},
                    P(<<"\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u0400\"">>)),
+     ?_assertMatch({ok,{<<" d ", 8211/utf8, " ", 8220/utf8, "Time Slowing Down", 8221/utf8>>, <<>>}},
+                   P(<<"\" d \\u2013 \\u201cTime Slowing Down\\u201d\"">>)),
      ?_assertMatch({error, {_, <<>>}},
                    P(<<"\"">>)),
      ?_assertMatch({error, {_, <<"abc">>}},
