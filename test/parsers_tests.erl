@@ -426,6 +426,8 @@ object_test_() ->
                    P(<<"{\"F4\" : 42}">>)),
      ?_assertMatch({ok, {[{4, undefined}], _}},
                    P(<<"{\"F4\" : null}">>)),
+     ?_assertMatch({error, _},
+                   P(<<"{\"F1\" : true}">>)),
      {"With unknown fields",
       [?_assertMatch({ok, {[{1, 43.0}], _}},
                      P(<<"{\"F1\" : 43, \"Unknown\" : {\"Ukn2\" : [1,true,{}]}}">>)),

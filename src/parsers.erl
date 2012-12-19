@@ -807,7 +807,9 @@ p_matches(SPs) ->
                                     end))
                        end)
                     || {S,P} <- SPs ],
-            QD = ?q(fun(_) -> {error, {none_matched, ?s(QBin)}} end),
+            QD = ?q(fun(_) ->
+                            ?MODULE:skip_object_field_p(?s(QBin))
+                    end),
             Fun = fun(Arg, Qs) ->
                           Cs = lists:flatmap(
                                  fun erl_syntax:fun_expr_clauses/1,
@@ -842,9 +844,7 @@ pair(F, P, N) ->
 
 object_field(FPNs) ->
     SPs = [ {F, pair(F, P, N)} || {F, P, N} <- FPNs ],
-    mplus(
-      p_matches(SPs),
-      lift(?q(?MODULE:skip_object_field_p))).
+    p_matches(SPs).
 
 skip_object_field() ->
     right(

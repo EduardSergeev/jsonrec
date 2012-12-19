@@ -9,7 +9,6 @@
 -module(jsonrec_tests).
 
 -include_lib("eunit/include/eunit.hrl").
-
 -include("../include/jsonrec.hrl").
 
 -type my_integer() :: integer().
@@ -28,8 +27,7 @@
         {id = 0 :: integer(),
          rec = #rec0{id = 42} :: #rec0{},
          recs = [] :: my_list(#rec0{}),
-         fi = <<>> :: binary(),
-         any :: any()}).
+         fi = <<>> :: binary()}).
 
 -type my_rec() :: #rec1{}.
 -type my_atom() :: some_atom.
@@ -58,8 +56,9 @@
         {id :: integer(),
          status = new :: status() }).
 
-%% -record(rec2,
-%%         {rs :: [#rec1{}]}).
+-record(rec5, 
+        {id :: integer(),
+         any :: any()}).
 
 
 
@@ -76,7 +75,9 @@ encode(#rec2{} = Rec) ->
 encode(#rec3{} = Rec) ->
     ?encode_gen(#rec3{}, Rec);
 encode(#rec4{} = Rec) ->
-    ?encode_gen(#rec4{}, Rec).
+    ?encode_gen(#rec4{}, Rec);
+encode(#rec5{} = Rec) ->
+    ?encode_gen(#rec5{}, Rec).
 
 decode(integer, Struct) ->
     ?decode_gen(my_integer(), Struct);
@@ -93,7 +94,9 @@ decode(rec3, Struct) ->
     {ok, RecField} = decode(Type, Bin),
     {ok, Rec#rec3{rec = RecField}};
 decode(rec4, Struct) ->
-    ?decode_gen(#rec4{}, Struct).
+    ?decode_gen(#rec4{}, Struct);
+decode(rec5, Struct) ->
+    ?decode_gen(#rec5{}, Struct).
 
 
 decode_test_() ->
@@ -200,6 +203,12 @@ whitespace_test() ->
     Json = list_to_binary(encode(Rec)),
     Json1 = <<"\n", Json/binary>>,
     ?assertMatch({ok, Rec}, decode(rec3, Json1)).
+
+extra_fields_test() ->
+    Rec = #rec5{id = 1},
+    Json = <<"{\"id\": 1, \"new_field\": 42}">>,
+    ?assertMatch({ok, Rec},
+                 decode(rec5, Json)).
     
 
 %%
@@ -273,7 +282,35 @@ anyjson_error_test() ->
              "  {\"id\": 2,"
              "   \"binary\": \"\\g\"}]}">>,
     ?assertMatch({error, _},
-                 decode(rec1, Json)).
+                 decode(rec5, Json)).
+
+
+rec0_parser(Inp) ->
+    ?decode_gen_parser(#rec0{}, Inp).
+
+rec5_decode_any_as_rec0(Inp) ->
+    case ?decode_gen_parser(#rec5{}, Inp) of
+        {ok, {#rec5{any = Rec0Bin} = Rec5, _}} ->
+            case rec0_parser(Rec0Bin) of
+                {ok, {Rec0, _}} ->
+                     %% ?debugFmt("Ok: ~p~n", [Rec0]),
+                    {ok, Rec5#rec5{any = Rec0}};
+                {error, _} = Err ->
+                     %% ?debugFmt("Err: ~p~n", [Err]),
+                    Err
+            end;
+        {error, _} = Err ->
+            %% ?debugFmt("Err: ~p~n", [Err]),
+            Err
+    end.
+    
+custom_parser_error_test() ->
+    Json = <<"{\"id\": 1,"
+             " \"any\": {\"id\": true}}">>,
+    ?assertMatch({error, _},
+                 rec5_decode_any_as_rec0(Json)).
+    
+
 
 %%
 %% Round-trip encoding/decoding
