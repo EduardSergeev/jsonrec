@@ -10,9 +10,9 @@
          match/1, matches/1,
          guard/1,
          fold/3, fold_iter/4,
-         many_acc/2, %% many_acc_iter/3,
+         many_acc/2,
          many/1, many1/1,
-         skip_many/1, skip_many1/1, %% skip_many_iter/2,
+         skip_many/1, skip_many1/1,
          option/2,
 
          whitespace/0,
@@ -34,9 +34,6 @@
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
-%% -compile(bin_opt_info).
--compile(export_all).
-
 %%
 %% Basic monadic interface
 %%
@@ -55,31 +52,6 @@ bind(Parser, Fun) ->
                    Failure)
     end.
 
-%% bind(Parser, Fun) ->
-%%     fun(QBin, Success, Failure) ->
-%%             ?q(case ?s(Parser(
-%%                          QBin,
-%%                          fun(QVal, QBin1) ->
-%%                                  Parser1 = Fun(QVal),
-%%                                  Parser1(
-%%                                    QBin1,
-%%                                    Success,
-%%                                    fun(QErr, QBin2) ->
-%%                                            ?q({error, {?s(QErr), ?s(QBin2)}})
-%%                                    end)
-%%                          end,
-%%                          fun(QErr, QBin2) ->
-%%                                  ?q({error, {?s(QErr), ?s(QBin2)}})
-%%                          end)) of
-%%                    {error, {_Err, _Bin}} ->
-%%                        ?s(Failure(?r(_Err), ?r(_Bin)));
-%%                    OK ->
-%%                        OK
-%%                end)
-%%     end.
-
-
-
 fail(QErr) ->
     fun(QBin, _Success, Failure) ->  
             Failure(QErr, QBin)
@@ -91,52 +63,34 @@ fail(QErr) ->
 %%
 mplus(Left, Right) ->
     fun(QBin, Success, Failure) ->
-            ?q(case ?s(Left(QBin,
-                            fun(QVal1, QBin1) ->
-                                    ?q({ok, {?s(QVal1), ?s(QBin1)}})
-                            end,
-                            fun(_QErr1, _QBin1) ->
-                                    Right(QBin,
-                                          fun(QVal2, QBin2) ->
-                                                  ?q({ok, {?s(QVal2), ?s(QBin2)}})
-                                          end,
-                                          Failure)
-                            end)) of
-                   {ok, {_Val, _Bin}} ->
-                       ?s(Success(?r(_Val), ?r(_Bin)));
-                   Err ->
-                       Err
+            ?q(case
+                   case ?s(Left(
+                             QBin,
+                             fun(QVal1, QBin1) ->
+                                     ?q({ok, {?s(QVal1), ?s(QBin1)}})
+                             end,
+                             fun(_QErr1, _) ->
+                                     ?q(error)
+                             end)) of
+                       error ->
+                           ?s(Right(
+                                QBin,
+                                fun(QVal2, QBin3) ->
+                                        ?q({ok, {?s(QVal2), ?s(QBin3)}})
+                                end,
+                                fun(QErr2, QBin4) ->
+                                        ?q({error, {?s(QErr2), ?s(QBin4)}})
+                                end));
+                       OK ->
+                           OK
+                   end of
+                   {ok, {_Val, _Bin1}} ->
+                       ?s(Success(?r(_Val), ?r(_Bin1)));
+                   {error, {_Err, _Bin2}} ->
+                       ?s(Failure(?r(_Err), ?r(_Bin2)))
                end)
     end.
-%% mplus(Left, Right) ->
-%%     fun(QBin, Success, Failure) ->
-%%             Left(QBin,
-%%                  Success,
-%%                  fun(_QErr, QBin1) ->
-%%                          Right(QBin1, Success, Failure)
-%%                  end)
-%%     end.
-%% mplus(Left, Right) ->
-%%     fun(QBin, Success, Failure) ->
-%%             ?q(begin
-%%                    Succ = fun(_Val, _Bin) ->
-%%                                   ?s(Success(?r(_Val), ?r(_Bin)))
-%%                           end,
-%%                    ?s(Left(QBin,
-%%                            fun(QVal1, QBin1) ->
-%%                                    ?q(?s(?r(Succ))(?s(QVal1), ?s(QBin1)))
-%%                            end,
-%%                            fun(_QErr1, _QBin1) ->
-%%                                    Right(QBin,
-%%                                          fun(QVal2, QBin2) ->
-%%                                                  ?q(?s(?r(Succ))(?s(QVal2), ?s(QBin2)))
-%%                                          end,
-%%                                          Failure)
-%%                            end))
-%%                end)
-%%     end.
 
-    
 
 %%
 %% Primitive parser combinators
@@ -227,31 +181,6 @@ many(Parser) ->
                end)
     end.
 
-%% many(Parser) ->
-%%     fun(QBin, Success, _) ->
-%%             QParser = ?q(fun(Bin) ->
-%%                                  ?s(Parser(?r(Bin),
-%%                                            fun(QVal, QBin1) ->
-%%                                                    ?q({ok, {?s(QVal), ?s(QBin1)}})
-%%                                            end,
-%%                                            fun(QErr, QBin2) ->
-%%                                                    ?q({error, {?s(QErr), ?s(QBin2)}})
-%%                                            end))
-%%                          end),
-%%             ?q(begin
-%%                    {_Vals, Pos1} = ?MODULE:many_iter(?s(QParser), ?s(QBin), []),
-%%                    ?s(Success(?r(_Vals), ?r(Pos1)))
-%%                end)
-%%     end.
-
-
-%% many_iter(Parser, Bin, Acc) ->
-%%     case Parser(Bin) of
-%%         {ok, {Val, Bin1}} ->
-%%             many_iter(Parser, Bin1, [Val|Acc]);
-%%         {error, _} ->
-%%             {lists:reverse(Acc), Bin}
-%%     end.
 
 many1(Parser) ->
     bind(Parser,
@@ -292,36 +221,6 @@ fold_iter(Parser, Bin, Fun, Acc) ->
             {Acc, Bin}
     end.
 
-
-%% many_acc(Parser, QAcc) ->
-%%     fun(QBin, Success, _) ->
-%%             QParser =
-%%                 ?q(fun(Bin) ->
-%%                            ?s(Parser(
-%%                                 ?r(Bin),
-%%                                 fun(QVal, QBin1) ->
-%%                                         ?q({ok, {?s(QVal), ?s(QBin1)}})
-%%                                 end,
-%%                                 fun(QErr, QBin2) ->
-%%                                         ?q({error, {?s(QErr), ?s(QBin2)}})
-%%                                 end))
-%%                    end),
-%%             ?q(begin
-%%                    {_Vals, _BinN} =
-%%                        ?MODULE:many_acc_iter(
-%%                           ?s(QParser), ?s(QBin), ?s(QAcc)),
-%%                    ?s(Success(?r(_Vals), ?r(_BinN)))
-%%                end)
-%%     end.
-
-%% many_acc_iter(Parser, Bin, Acc) ->
-%%     case Parser(Bin) of
-%%         {ok, {Val, Bin1}} ->
-%%             many_acc_iter(Parser, Bin1, [Val|Acc]);
-%%         {error, _} ->
-%%             {Acc, Bin}
-%%     end.
-
 many_acc(Parser, QAcc) ->
     fun(QBin, Success, _) ->
             ?q(begin
@@ -352,31 +251,6 @@ skip_many1(Parser) ->
                  skip_many(Parser)
          end).
 
-%% skip_many(Parser) ->
-%%     fun(QBin, Success, _) ->
-%%             QStep =
-%%                 ?q(fun(Bin) ->
-%%                            ?s(Parser(
-%%                                 ?r(Bin),
-%%                                 fun(_QVal, QBin1) ->
-%%                                         ?q({ok, {ok, ?s(QBin1)}})
-%%                                 end,
-%%                                 fun(_QErr, _QBin2) ->
-%%                                         ?q({error, {stop, stop}})
-%%                                 end))
-%%                    end),
-%%             Success(
-%%               ?q(ok),
-%%               ?q(?MODULE:skip_many_iter(?s(QStep), ?s(QBin))))
-%%     end.
-
-%% skip_many_iter(ParserFun, Bin) ->
-%%     case ParserFun(Bin) of
-%%         {ok, {_, Bin1}} ->
-%%             skip_many_iter(ParserFun, Bin1);
-%%         {error, _} ->
-%%             Bin
-%%     end.
 
 skip_many(Parser) ->
     fun(QBin, Success, _) ->
@@ -713,23 +587,6 @@ uhex() ->
 
 ws() ->
     lift(?q(?MODULE:ws_p)).
-    %% skip_many(whitespace()).
-
-%% ws_p(Bin) ->
-%%     ?s(to_parser(
-%%          skip_many(whitespace()),
-%%          ?r(Bin))).
-
-%% ws_p(<<$\s, Rest/binary>>) ->
-%%     ws_p(Rest);
-%% ws_p(<<$\t, Rest/binary>>) ->
-%%     ws_p(Rest);
-%% ws_p(<<$\r, Rest/binary>>) ->
-%%     ws_p(Rest);
-%% ws_p(<<$\n, Rest/binary>>) ->
-%%     ws_p(Rest);
-%% ws_p(Bin) ->
-%%     {ok, {ok, Bin}}.
 
 ws_p(Inp) ->
     case Inp of
@@ -744,7 +601,6 @@ ws_p(Inp) ->
         _ ->
             {ok, {ok, Inp}}
     end.
-
 
 comma_delim() ->
     right(ws(),
@@ -898,11 +754,3 @@ any_json() ->
 any_json_p(Bin) ->
     ?s(to_parser(any_json(), ?r(Bin))).
 
-
-tt(Inp) ->
-    ?s(to_parser(uhex(),
-                 ?r(Inp))).
-
-tt2(Inp) ->
-    ?s(to_parser(escape(),
-                 ?r(Inp))).

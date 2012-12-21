@@ -5,6 +5,7 @@
 
 -compile([{nowarn_unused_function, [thousands/0]}]).
 
+
 return_test() ->
     P = fun(_Inp) ->
                 ?s(inst_body(
