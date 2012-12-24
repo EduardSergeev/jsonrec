@@ -296,7 +296,7 @@ integer_to_json(I) ->
     list_to_binary(integer_to_list(I)).
 
 float_to_json(F) ->
-    list_to_binary(float_to_list(F)).
+    list_to_binary(io_lib_format:fwrite_g(F)).
 
 binary_to_json(B) ->    
     <<$", B/binary, $">>.
