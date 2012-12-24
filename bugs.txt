@@ -1,0 +1,12 @@
+
+
+
+- Use `SepByEnd` instead of `many` to for fields in record and elems in arrays 
+- Need useful errors in `decode` whenever parsing fails.
+For example in some nested record's fields could not be matched against a specified set of atoms the appropriate place and error should be emmited instead of silently skipping the outer structure.
+
+- Allow `[#rec{}]` spec in `?gen_decode`
+- Catch recursive (loops) type definitions and report error instead of hanging compilation
+- `undefined` specified as a type for a field leads to hanging of the compilation
+- Some errors from `meta` are not diplayed as error (something wrong with `get_line`?) 
+- Strange error in 'parsers:mplus/2' - when '_Err2' is renamed to '_Err' there some 'unsafe' error when compiling some code which uses 'mplus' - need to be investigated 

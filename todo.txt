@@ -1,0 +1,10 @@
+
+
+
+- Add function name to meta error "Unknown remote function call in 'splice'"
+- Add "atom conversion" option - similar to "field name conversion"
+- Add `jsonrec:to_camel` field name handler
+- Add `jsonrec:datetime_to_binary` and reverse functions
+- Handle `string()` types (similar to `binary()` types but "decode to" and "encode from" sttrings)
+- Add type annotations for dyalizer
+- Extract JSON-related parsers from 'parsers' module to maybe 'json_parsers'
