@@ -9,9 +9,10 @@
          lift/1,
          match/1, matches/1,
          guard/1,
-         fold/3, fold_iter/4,
          many_acc/2,
          many/1, many1/1,
+         sep_by_till_acc1/4,
+         sep_by_till1/3, sep_by_till/3,
          skip_many/1, skip_many1/1,
          option/2,
 
@@ -28,7 +29,7 @@
          skip_object_field_p/1, skip_json_p/1,
          any_json_p/1,
 
-         inst_body/2, to_parser/2,
+         to_parser/2,
 
          sequence/1]).
 
@@ -53,8 +54,8 @@ bind(Parser, Fun) ->
     end.
 
 fail(QErr) ->
-    fun(QBin, _Success, Failure) ->  
-            Failure(QErr, QBin)
+    fun(_QBin, _Success, Failure) ->  
+            Failure(QErr)
     end.
     
 
@@ -69,25 +70,25 @@ mplus(Left, Right) ->
                              fun(QVal1, QBin1) ->
                                      ?q({ok, {?s(QVal1), ?s(QBin1)}})
                              end,
-                             fun(_QErr1, _) ->
-                                     ?q(error)
+                             fun(QErr1) ->
+                                     ?q({error, ?s(QErr1)})
                              end)) of
-                       error ->
+                       {error, _Err1} ->
                            ?s(Right(
                                 QBin,
                                 fun(QVal2, QBin3) ->
                                         ?q({ok, {?s(QVal2), ?s(QBin3)}})
                                 end,
-                                fun(QErr2, QBin4) ->
-                                        ?q({error, {?s(QErr2), ?s(QBin4)}})
+                                fun(QErr2) ->
+                                        ?q({error, {all_failed, {?s(?r(_Err1)), ?s(QErr2)}}})
                                 end));
                        OK ->
                            OK
                    end of
                    {ok, {_Val, _Bin1}} ->
                        ?s(Success(?r(_Val), ?r(_Bin1)));
-                   {error, {_Err, _Bin2}} ->
-                       ?s(Failure(?r(_Err), ?r(_Bin2)))
+                   {error, _Err2} ->
+                       ?s(Failure(?r(_Err2)))
                end)
     end.
 
@@ -106,8 +107,8 @@ lift(QParser) ->
             ?q(case ?s(QParser)(?s(QBin)) of
                    {ok, {_Val, _Bin1}} ->
                        ?s(Success(?r(_Val), ?r(_Bin1)));
-                   {error, {_Err, _Bin2}} ->
-                       ?s(Failure(?r(_Err), ?r(_Bin2)))
+                   {error, _Err} ->
+                       ?s(Failure(?r(_Err)))
                end)
     end.
 
@@ -115,10 +116,10 @@ lift(QParser) ->
 match(QC) ->
     fun(QBin, Success, Failure) ->
             ?q(case ?s(QBin) of
-                   <<?s(QC), Rest/binary>> ->
-                       ?s(Success(QC, ?r(Rest)));
+                   <<?s(QC), _Rest/binary>> ->
+                       ?s(Success(QC, ?r(_Rest)));
                    _ ->
-                       ?s(Failure(?q({expected, <<?s(QC)>>}), QBin))
+                       ?s(Failure(?q({expected, <<?s(QC)>>, at, ?s(QBin)})))
                end)
     end.
 
@@ -142,7 +143,7 @@ matches(QCs, QRs) ->
                    {ok,  {_Val, _Bin}} ->
                        ?s(Success(?r(_Val), ?r(_Bin)));
                    error ->
-                       ?s(Failure(?q(unexpected), QBin))
+                       ?s(Failure(?q({unexpected, at, ?s(QBin)})))
                end)
     end.
 
@@ -153,7 +154,7 @@ guard(QExpFun) ->
                    <<C/utf8, Rest/binary>> when ?s(QExpFun(?r(C))) ->
                        ?s(Success(?r(C), ?r(Rest)));
                    _ ->
-                       ?s(Failure(?q(does_not_satisfy), QBin))
+                       ?s(Failure(?q({does_not_satisfy, at, ?s(QBin)})))
                end)
     end.
 
@@ -171,7 +172,7 @@ many(Parser) ->
                                                    ?s(?r(Next)),
                                                    [?s(QVal)|?s(?r(Acc))]))
                                     end,
-                                    fun(_QErr, _QBin2) ->
+                                    fun(_QErr) ->
                                             ?q({lists:reverse(?s(?r(Acc))),
                                                 ?s(?r(Bin))})
                                     end))
@@ -191,36 +192,6 @@ many1(Parser) ->
                       end)
          end).
 
-fold(Parser, QFun, QAcc) ->
-    fun(QBin, Success, _) ->
-            QParser =
-                ?q(fun(Bin) ->
-                           ?s(Parser(
-                                ?r(Bin),
-                                fun(QVal, QBin1) ->
-                                        ?q({ok, {?s(QVal), ?s(QBin1)}})
-                                end,
-                                fun(QErr, QBin2) ->
-                                        ?q({error, {?s(QErr), ?s(QBin2)}})
-                                end))
-                         end),
-            ?q(begin
-                   {_Vals, _BinN} = 
-                       ?MODULE:fold_iter(
-                          ?s(QParser), ?s(QBin),
-                          ?s(QFun), ?s(QAcc)),
-                   ?s(Success(?r(_Vals), ?r(_BinN)))
-               end)
-    end.
-    
-fold_iter(Parser, Bin, Fun, Acc) ->
-    case Parser(Bin) of
-        {ok, {Val, Bin1}} ->
-            fold_iter(Parser, Bin1, Fun, Fun(Val, Acc));
-        {error, _} ->
-            {Acc, Bin}
-    end.
-
 many_acc(Parser, QAcc) ->
     fun(QBin, Success, _) ->
             ?q(begin
@@ -234,7 +205,7 @@ many_acc(Parser, QAcc) ->
                                                    ?s(?r(Next)),
                                                    [?s(QVal)|?s(?r(Acc))]))
                                     end,
-                                    fun(_QErr, _QBin2) ->
+                                    fun(_QErr) ->
                                             ?q({?s(?r(Acc)),
                                                 ?s(?r(Bin))})
                                     end))
@@ -264,7 +235,7 @@ skip_many(Parser) ->
                                                    ?s(QBin1),
                                                    ?s(?r(Next))))
                                     end,
-                                    fun(_QErr, _QBin2) ->
+                                    fun(_QErr) ->
                                             ?q({ok, ?s(?r(Bin))})
                                     end))
                        end,
@@ -292,14 +263,93 @@ count(QN, Parser) ->
                                                    [?s(QVal)|?s(?r(_Acc2))],
                                                    ?s(?r(I)) - 1))
                                     end,
-                                    fun(QErr, QBin2) ->
-                                            Failure(QErr, QBin2)
+                                    fun(QErr) ->
+                                            Failure(QErr)
                                     end))
                        end,
                    Step(?s(QBin), Step, [], ?s(QN))
                end)
     end.
-    
+
+
+
+sep_by_till(Parser, Sep, End) ->
+    mplus(
+      sep_by_till1(Parser, Sep, End),
+      right(
+        End,
+        return(?q([])))).
+
+sep_by_till1(Parser, Sep, End) ->
+    bind(
+      sep_by_till_acc1(Parser, Sep, End, ?q([])),
+      fun(QVs) ->
+              return(?q(lists:reverse(?s(QVs))))
+      end).
+
+
+sep_by_till_acc(Parser, Sep, End, QAcc) ->
+    mplus(
+      sep_by_till_acc1(Parser, Sep, End, QAcc),
+      right(
+        End,
+        return(QAcc))).
+
+sep_by_till_acc1(Parser, Sep, End, QAcc) ->
+    QFun = fun(QV, QAcc1) ->
+                   ?q([?s(QV)|?s(QAcc1)])
+           end,
+    sep_by_till_fold1(Parser, Sep, End, QFun, QAcc).
+
+
+sep_by_till_fold(Parser, Sep, End, QFun, QAcc) ->
+    mplus(
+      sep_by_till_fold1(Parser, Sep, End, QFun, QAcc),
+      right(
+        End,
+        return(QAcc))).
+
+sep_by_till_fold1(Parser, Sep, End, QFun, QAcc) ->
+    fun(QBin, Success, Failure) ->
+            Parser1 = fun(QAcc1) ->
+                              bind(
+                                Parser,
+                                fun(QV) ->
+                                        return(QFun(QV, QAcc1))
+                                end)
+                      end,
+            ?q(begin
+                   Step = 
+                       fun(Bin, Next, _Acc) ->
+                               ?s((Parser1(?r(_Acc)))(
+                                    ?r(Bin),
+                                    fun(QAcc1, QBin1) ->
+                                            Sep(
+                                              QBin1,
+                                              fun(_QSepVal, QBin2) ->
+                                                      ?q(?s(?r(Next))(
+                                                             ?s(QBin2),
+                                                             ?s(?r(Next)),
+                                                             ?s(QAcc1)))
+                                              end,
+                                              fun(QErr2) ->
+                                                      End(
+                                                        QBin1,
+                                                        fun(_QEndVal, QBin3) ->
+                                                                Success(QAcc1, QBin3)
+                                                        end,
+                                                        fun(QErr3) ->
+                                                                Failure(
+                                                                  ?q({sep_end_failed, 
+                                                                      {?s(QErr2), ?s(QErr3)}}))
+                                                        end)
+                                              end)
+                                    end,
+                                    Failure))
+                       end,
+                   Step(?s(QBin), Step, ?s(QAcc))
+               end)
+    end. 
 
 
 option(Parser, Default) ->
@@ -333,28 +383,14 @@ sequence([Q|Qs]) ->
 %%
 %% Utilify function for conversion of meta-parser to parser body (as a quote)
 %%
-inst_body(Parser, QBin) ->
-    Parser(
-      QBin,
-      fun(QVal, QBin1) ->
-              ?q({ok,
-                  {?s(QVal),
-                   byte_size(?s(QBin)) - byte_size(?s(QBin1))}})
-      end,
-      fun(QErr, QBin2) ->
-              ?q({error,
-                  {?s(QErr),
-                   byte_size(?s(QBin)) - byte_size(?s(QBin2))}})
-      end).
-
 to_parser(Parser, QBin) ->
     Parser(
       QBin,
       fun(QVal, QBin1) ->
               ?q({ok, {?s(QVal), ?s(QBin1)}})
       end,
-      fun(QErr, QBin2) ->
-              ?q({error, {?s(QErr), ?s(QBin2)}})
+      fun(QErr) ->
+              ?q({error, ?s(QErr)})
       end).
 
 
@@ -371,6 +407,8 @@ null() ->
 null_p(Bin) ->
     ?s(to_parser(null(), ?r(Bin))).
 
+skip_null() ->
+    right(null(), return(?q(ok))).
 
 nullable(Parser) ->
     mplus(
@@ -382,6 +420,9 @@ boolean() ->
     mplus(
       right(match(?q("true")), return(?q(true))),
       right(match(?q("false")), return(?q(false)))).
+
+skip_boolean() ->
+    right(boolean(), return(?q(ok))).
 
 boolean_p(Bin) ->
     ?s(to_parser(boolean(), ?r(Bin))).
@@ -433,7 +474,7 @@ skip_int() ->
     right(
       option(
         match(?q($-)),
-        ?q(undefined)),
+        ?q(ok)),
       mplus(
         skip_positive(),
         digit0())).
@@ -495,8 +536,8 @@ skip_float() ->
     right(
       skip_int(),
       right(
-        option(skip_frac(), ?q(undefined)),
-        option(skip_exp(), ?q(undefined)))).
+        option(skip_frac(), ?q(ok)),
+        option(skip_exp(), ?q(ok)))).
 
 
 integer() ->
@@ -603,53 +644,34 @@ ws_p(Inp) ->
     end.
 
 comma_delim() ->
-    right(ws(),
-          left(option(match(?q($,)), ?q(no_comma)),
-               ws())).
+    right(ws(), left(match(?q($,)), ws())).
 
 
 array(P) ->
-    left(
-      right(
-        left(match(?q($[)), ws()),
-        many(left(P, comma_delim()))),
-      match(?q($]))).
+    right(
+      left(match(?q($[)), ws()),
+      sep_by_till(
+        P,
+        comma_delim(),
+        right(ws(), match(?q($]))))).
 
 
 object(FPNs) ->
-    bind(
-      match(?q(${)),
-      fun(_) ->
-              right(
-                ws(),
-                bind(
-                  many(
-                    left(object_field(FPNs),
-                         comma_delim())),
-                  fun(Fs) ->
-                          right(match(?q($})),
-                                return(
-                                  ?q(lists:filter(
-                                       fun is_tuple/1,
-                                       ?s(Fs)))))
-                  end))
-      end).
+    right(
+      left(match(?q(${)), ws()),
+      bind(
+        sep_by_till_acc(
+          object_field(FPNs),
+          comma_delim(),
+          right(ws(), match(?q($}))),
+          ?q([])),
+        fun(Fs) ->
+                return(
+                  ?q(lists:filter(
+                       fun is_tuple/1,
+                       ?s(Fs))))
+        end)).
 
-skip_object() ->
-    bind(
-      match(?q(${)),
-      fun(_) ->
-              right(
-                ws(),
-                bind(
-                  skip_many(
-                    left(skip_object_field(),
-                         comma_delim())),
-                  fun(_) ->
-                          right(match(?q($})),
-                                return(?q(ok)))
-                  end))
-      end).
 
 p_matches(SPs) ->
     fun(QBin, Success, Failure) ->
@@ -658,8 +680,8 @@ p_matches(SPs) ->
                                     fun(QVal, QBin1) ->
                                             ?q({ok, {?s(QVal), ?s(QBin1)}})
                                     end,
-                                    fun(QErr, QBin2) ->
-                                            ?q({error, {?s(QErr), ?s(QBin2)}})
+                                    fun(QErr) ->
+                                            ?q({error, ?s(QErr)})
                                     end))
                        end)
                     || {S,P} <- SPs ],
@@ -675,8 +697,8 @@ p_matches(SPs) ->
             ?q(case ?s(Fun(?i(QBin), ?i(sequence(QFs ++ [QD])))) of
                    {ok, {_Val, _Bin1}} ->
                        ?s(Success(?r(_Val), ?r(_Bin1)));
-                   {error, {_Err, _Bin2}} ->
-                       ?s(Failure(?r(_Err), ?r(_Bin2)))
+                   {error, _Err} ->
+                       ?s(Failure(?r(_Err)))
                end)
     end.
     
@@ -693,14 +715,25 @@ pair(F, P, N) ->
                     fun(QVal, QBin1) ->
                             Success(?q({?s(N), ?s(QVal)}), QBin1)
                     end,
-                    fun(QErr, QBin2) ->
-                            Failure(?q({<<?s(F)>>, ?s(QErr)}), QBin2)
+                    fun(QErr) ->
+                            Failure(?q({<<?s(F)>>, ?s(QErr)}))
                     end)
           end))).
 
 object_field(FPNs) ->
     SPs = [ {F, pair(F, P, N)} || {F, P, N} <- FPNs ],
     p_matches(SPs).
+
+
+skip_object() ->
+    right(
+      left(match(?q(${)), ws()),
+      sep_by_till_fold(
+        skip_object_field(),
+        comma_delim(),
+        right(ws(), match(?q($}))),
+        fun(_, _) -> ?q(ok) end,
+        ?q(ok))).
 
 skip_object_field() ->
     right(
@@ -717,18 +750,19 @@ skip_object_field_p(Bin) ->
     ?s(to_parser(skip_object_field(), ?r(Bin))).
 
 
-
 skip_json() ->
     mplus(
-      null(),
+      skip_null(),
       mplus(
-       boolean(),
+       skip_boolean(),
        mplus(
          skip_float(),
          mplus(
-           string(),
+           right(string(), return(?q(ok))),
            mplus(
-             array(lift(?q(?MODULE:skip_json_p))),
+             right(
+               array(lift(?q(?MODULE:skip_json_p))),
+               return(?q(ok))),
              skip_object()))))).
 
 skip_json_p(Bin) ->

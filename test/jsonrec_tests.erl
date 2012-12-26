@@ -14,6 +14,7 @@
 -type my_integer() :: integer().
 -type my_list(A) :: [A].
 
+-compile(export_all).
 
 -record(rec0,
         {id :: integer(),
@@ -139,20 +140,20 @@ decode_test_() ->
 decode_error_test_() ->
     [{"Invalid format: missing {",
       ?_assertMatch(
-         {error, {{expected, <<"{">>}, <<"\"id\":42}">>}},
+         {error, {expected, <<"{">>, at, <<"\"id\":42}">>}},
          decode(rec0, <<"\"id\":42}">>))},
      {"Invalid format: missing }",
       ?_assertMatch(
-         {error, {{expected, <<"}">>}, <<>>}},
-         decode(rec0, <<"{\"id\":42">>))}].
-     %% {"Invalid format: missing deilimiter :",
-     %%  ?_assertMatch(
-     %%     {error, {{expected, <<":">>}, 5}},
-     %%     decode(rec0, <<"{\"Id\"42}">>))},
-     %% {"Invalid content",
-     %%  ?_assertMatch(
-     %%     {error, {_, 6}},
-     %%     decode(rec0, <<"{\"Id\":\"wrong\"}">>))}].
+         {error, _},
+         decode(rec0, <<"{\"id\":42">>))},
+     {"Invalid format: missing deilimiter :",
+      ?_assertMatch(
+         {error, _},
+         decode(rec0, <<"{\"id\"42}">>))},
+     {"Invalid content",
+      ?_assertMatch(
+         {error, _},
+         decode(rec0, <<"{\"id\":\"wrong\"}">>))}].
 
 
 rec0_test() ->

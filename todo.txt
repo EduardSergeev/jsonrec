@@ -8,3 +8,4 @@
 - Handle `string()` types (similar to `binary()` types but "decode to" and "encode from" sttrings)
 - Add type annotations for dyalizer
 - Extract JSON-related parsers from 'parsers' module to maybe 'json_parsers'
+- Get rid of lists:filter in parsers:object/1 (optimisation)

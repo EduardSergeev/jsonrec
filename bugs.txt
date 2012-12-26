@@ -1,7 +1,6 @@
 
 
 
-- Use `SepByEnd` instead of `many` to for fields in record and elems in arrays 
 - Need useful errors in `decode` whenever parsing fails.
 For example in some nested record's fields could not be matched against a specified set of atoms the appropriate place and error should be emmited instead of silently skipping the outer structure.
 
