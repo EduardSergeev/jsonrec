@@ -267,6 +267,34 @@ to_pascal_conv_test() ->
     Restored = from_pascal_json(Bin),
     ?assertEqual({ok, Rec}, Restored).
 
+
+to_camel_json(#rec0{} = Rec) ->
+    ?encode_gen(
+       #rec0{}, Rec,
+       [{name_handler, fun jsonrec:atom_to_camel/1}]).
+
+from_camel_json(Bin) ->
+    ?decode_gen(
+       #rec0{}, Bin,
+       [{name_handler, fun jsonrec:atom_to_camel/1}]).
+
+to_camel_conv_test() ->
+    Rec = #rec0
+        {id = 42,
+         atom = some_atom,
+         boolean = false,
+         another_field = <<"B">>},
+    Bin = list_to_binary(to_camel_json(Rec)),
+    ?assertEqual(<<"{\"id\":42,"
+                   "\"status\":\"new\","
+                   "\"atom\":\"some_atom\","
+                   "\"boolean\":false,"
+                   "\"anotherField\":\"B\"}">>,
+                 Bin),
+    Restored = from_camel_json(Bin),
+    ?assertEqual({ok, Rec}, Restored).
+
+
 nested_error_test() ->
     Json = <<"{\"id\": 42,"
              " \"recs\": ["
