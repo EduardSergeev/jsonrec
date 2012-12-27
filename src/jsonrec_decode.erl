@@ -112,7 +112,14 @@ gen_decode({integer, []} = Type, _Info, Mps) ->
 gen_decode({binary, []} = Type, _Info, Mps) ->
     P = ?q(parsers:string_p),
     code_basic(Type, P, Mps);
-
+gen_decode({string, []} = Type, _Info, Mps) ->
+    P = bind(
+          parsers:string(),
+          fun(S) ->
+                  return(
+                    ?q(binary_to_list(?s(S))))
+          end),
+    add_fun_def(Type, P, Mps);
 gen_decode({float, []} = Type, _Info, Mps) ->
     P = ?q(parsers:float_p),
     code_basic(Type, P, Mps);

@@ -61,6 +61,9 @@
         {id :: integer(),
          any :: any()}).
 
+-record(rec6, 
+        {id :: integer(),
+         string :: string()}).
 
 
 encode(Rec) when is_integer(Rec) ->
@@ -78,7 +81,9 @@ encode(#rec3{} = Rec) ->
 encode(#rec4{} = Rec) ->
     ?encode_gen(#rec4{}, Rec);
 encode(#rec5{} = Rec) ->
-    ?encode_gen(#rec5{}, Rec).
+    ?encode_gen(#rec5{}, Rec);
+encode(#rec6{} = Rec) ->
+    ?encode_gen(#rec6{}, Rec).
 
 decode(integer, Struct) ->
     ?decode_gen(my_integer(), Struct);
@@ -97,7 +102,9 @@ decode(rec3, Struct) ->
 decode(rec4, Struct) ->
     ?decode_gen(#rec4{}, Struct);
 decode(rec5, Struct) ->
-    ?decode_gen(#rec5{}, Struct).
+    ?decode_gen(#rec5{}, Struct);
+decode(rec6, Struct) ->
+    ?decode_gen(#rec6{}, Struct).
 
 
 decode_test_() ->
@@ -220,6 +227,14 @@ string_escape_test() ->
                 Json),
     ?assertMatch({ok, #rec0{another_field = Bin}},
                  decode(rec0, Json)).
+
+string_test() ->
+    Rec = #rec6{id = 1, string = "Some string\n\r"},
+    decode_encode(rec6, Rec),
+    Json = list_to_binary(encode(Rec)),
+    ?assertMatch(<<"{\"id\":1,\"string\":\"Some string\\n\\r\"}">>,
+                 Json).
+    
     
 
 %%

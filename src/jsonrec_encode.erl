@@ -7,8 +7,8 @@
 -export([encode_gen/4]).
 
 -export([integer_to_json/1, float_to_json/1,
-         binary_to_json/1, boolean_to_json/1,
-         atom_to_json/1]).
+         binary_to_json/1, string_to_json/1,
+         boolean_to_json/1, atom_to_json/1]).
 
 -export([format_error/1]).
 
@@ -109,6 +109,9 @@ gen_encode({integer, []} = Type, _Info, Mps) ->
 gen_encode({binary, []} = Type, _Info, Mps) ->
     P = ?q(?MODULE:binary_to_json),
     encode_basic_pred(Type, P, ?q(is_binary), Mps);
+gen_encode({string, []} = Type, _Info, Mps) ->
+    P = ?q(?MODULE:string_to_json),
+    encode_basic_pred(Type, P, ?q(is_list), Mps);
 gen_encode({float, []} = Type, _Info, Mps) ->
     P = ?q(?MODULE:float_to_json),
     encode_basic_pred(Type, P, ?q(is_float), Mps);
@@ -316,6 +319,8 @@ atom_to_json(A) ->
 escape_binary(Bin) ->
     escape_iter(Bin, Bin, 0, []).
 
+escape_iter(<<>>, Bin, _, []) ->
+    Bin;
 escape_iter(<<>>, Bin, _, Acc) ->
     lists:reverse([Bin|Acc]);
 escape_iter(<<$", Rest/binary>>, Bin, Len, Acc) ->
