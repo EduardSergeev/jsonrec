@@ -211,6 +211,16 @@ extra_fields_test() ->
     ?assertMatch({ok, Rec},
                  decode(rec5, Json)).
     
+string_escape_test() ->
+    Bin = <<"\n1\t2\n\r3\b4\"5\\">>,
+    Rec = #rec0{another_field = Bin},
+    Json = list_to_binary(encode(Rec)),
+    ?assertMatch(<<"{\"status\":\"new\","
+                   "\"another_field\":\"\\n1\\t2\\n\\r3\\b4\\\"5\\\\\"}">>,
+                Json),
+    ?assertMatch({ok, #rec0{another_field = Bin}},
+                 decode(rec0, Json)).
+    
 
 %%
 %% 'name_conv' option test

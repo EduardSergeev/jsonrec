@@ -299,7 +299,10 @@ float_to_json(F) ->
     list_to_binary(io_lib_format:fwrite_g(F)).
 
 binary_to_json(B) ->    
-    <<$", B/binary, $">>.
+    [$", escape_binary(B), $"].
+
+string_to_json(Str) ->
+    binary_to_json(list_to_binary(Str)).
 
 boolean_to_json(true) ->
     <<"true">>;
@@ -308,6 +311,34 @@ boolean_to_json(false) ->
 
 atom_to_json(A) ->
     <<$\", (atom_to_binary(A, utf8))/binary, $\">>.
+
+
+escape_binary(Bin) ->
+    escape_iter(Bin, Bin, 0, []).
+
+escape_iter(<<>>, Bin, _, Acc) ->
+    lists:reverse([Bin|Acc]);
+escape_iter(<<$", Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\\"">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\\, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\\\">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$/, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\/">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\b, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\b">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\f, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\f">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\n, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\n">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\r, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\r">>, binary:part(Bin, 0, Len) | Acc]);
+escape_iter(<<$\t, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Rest, 0, [<<"\\t">>, binary:part(Bin, 0, Len) | Acc]);
+
+escape_iter(<<_/utf8, Rest/binary>>, Bin, Len, Acc) ->
+    escape_iter(Rest, Bin, Len+1, Acc);
+escape_iter(Inv, _, _, _) ->
+    error({invalid_unicode, Inv}).
 
 
 %%
