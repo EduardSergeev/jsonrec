@@ -1,5 +1,6 @@
 
-
+- Move common function in `jsonrec_encode` and `jsonrec_decode` to `jsonrec`
+also get rid of old code (like `CodeFun` var) left from the times when both encode and decode functionality were encoded in single `jsonrec` module
 - Add type annotations for dyalizer
 - Add "atom conversion" option - similar to "field name conversion"
 - Add `jsonrec:datetime_to_binary` and reverse functions
