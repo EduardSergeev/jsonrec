@@ -14,7 +14,7 @@
 -type my_integer() :: integer().
 -type my_list(A) :: [A].
 
--compile(export_all).
+%% -compile(export_all).
 
 -record(rec0,
         {id :: integer(),
@@ -38,7 +38,7 @@
          ref_ids :: my_list(my_integer()),
          recs0 :: [#rec0{}],
          arr = [] :: [my_integer()],
-         rec1 = [#rec1{}]:: [my_rec()]}).
+         rec1 = [#rec1{}] :: [my_rec()]}).
 
 
 -type any_rec() :: #rec0{} | #rec1{}.
@@ -66,6 +66,15 @@
          string :: string()}).
 
 
+-record(rec_rec,
+        {id :: integer(),
+         rec :: #rec_rec{}}).
+
+-encode({{record,[{atom,rec_rec}]}, encoder}).
+-decode({{record,[{atom,rec_rec}]}, rec_rec_parser}).
+
+
+
 encode(Rec) when is_integer(Rec) ->
     ?encode_gen(my_integer(), Rec);
 encode(Rec) when is_atom(Rec) ->
@@ -83,7 +92,10 @@ encode(#rec4{} = Rec) ->
 encode(#rec5{} = Rec) ->
     ?encode_gen(#rec5{}, Rec);
 encode(#rec6{} = Rec) ->
-    ?encode_gen(#rec6{}, Rec).
+    ?encode_gen(#rec6{}, Rec);
+encode(#rec_rec{} = Rec) ->
+    ?encode_gen(#rec_rec{}, Rec).
+
 
 decode(integer, Struct) ->
     ?decode_gen(my_integer(), Struct);
@@ -104,7 +116,9 @@ decode(rec4, Struct) ->
 decode(rec5, Struct) ->
     ?decode_gen(#rec5{}, Struct);
 decode(rec6, Struct) ->
-    ?decode_gen(#rec6{}, Struct).
+    ?decode_gen(#rec6{}, Struct);
+decode(rec_rec, Bin) ->
+    ?decode_gen(#rec_rec{}, Bin).
 
 
 decode_test_() ->
@@ -262,6 +276,24 @@ record_list_test() ->
     Json = list_to_binary(IoList),
     {ok, Rs1} = D(Json),
     ?assertEqual(Rs, Rs1).
+
+%%
+%% Recursive definitions tests
+%%
+encoder(#rec_rec{} = Rec) ->
+    ?encode_gen_encoder(#rec_rec{}, Rec).
+
+rec_rec_parser(Bin) ->
+    ?decode_gen_parser(#rec_rec{}, Bin).
+
+self_reference_test() ->
+    Rec = #rec_rec
+        {id = 1,
+         rec = #rec_rec
+         {id = 2,
+          rec = #rec_rec
+          {id = 3}}},
+    encode_decode(rec_rec, Rec).
 
 
 %%

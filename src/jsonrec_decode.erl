@@ -12,6 +12,7 @@
 -define(TYPE_METHODS_OPT, type_methods).
 -define(TYPE_SURROGATES_OPT, type_surrogates).
 -define(NAME_HANDLER_OPT, name_handler).
+-define(DECODE_ATTR, decode).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
@@ -45,16 +46,15 @@
         {defs = [],
          subs = [],
          attrs = [],
-         name_conv}).
+         name_conv,
+         types = gb_sets:new()}).
 
 -record(def_funs,
         {parser}).
 
--define(DECODE_ATTR, decode).
-
 
 decode_gen(QBin, Type, Info, Options) ->
-    Parser = code_gen(Type, Info, Options),
+    Parser = code_gen(fun fetch/3, Type, Info, Options),
     ?q(case ?s(to_parser(Parser, QBin)) of
            {ok, {Val, _}} ->
                {ok, Val};
@@ -63,11 +63,11 @@ decode_gen(QBin, Type, Info, Options) ->
        end).
 
 decode_gen_parser(QBin, Type, Info, Options) ->
-    Parser = code_gen(Type, Info, Options),
+    Parser = code_gen(fun gen_decode/3, Type, Info, Options),
     to_parser(Parser, QBin).
 
 
-code_gen(Type, Info, Options) ->
+code_gen(CodeFun, Type, Info, Options) ->
     Type1 = norm_type_quote(?e(Type)),
     Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
     Subs1 = [norm_type(T) || T <- Subs],                      
@@ -79,7 +79,7 @@ code_gen(Type, Info, Options) ->
       subs = Subs1,
       attrs = Attrs,
       name_conv = NameFun},
-    {Parser, _} = gen_decode(type_ref(Type1), ?e(Info), Mps),
+    {Parser, _} = CodeFun(type_ref(Type1), ?e(Info), Mps),
     right(lift(?q(json_parsers:ws_p)), Parser).
 
 
@@ -213,7 +213,14 @@ fetch(Type, Info, Mps) ->
                         {Type, #def_funs{parser = Parser}} ->
                             {Parser, Mps};
                         none ->
-                            gen_decode(Type, Info, Mps)
+                            Ts = Mps#mps.types,
+                            case gb_sets:is_member(Type, Ts) of
+                                false ->
+                                    Ts1 = gb_sets:add(Type, Ts),
+                                    gen_decode(Type, Info, Mps#mps{types = Ts1});
+                                true ->
+                                    meta:error(?MODULE, loop, Type)
+                            end
                     end;
                 {Type, {_,Args} = SType} when is_list(Args) ->
                     fetch(SType, Info, Mps);
@@ -248,7 +255,11 @@ code_underlying({_, Args} = Type, Info, Mps) ->
     Type1 =  meta:reify_type(Type, Info),
     {_, Type2, []} = ground_type(Type1, Args),
     TR = type_ref(Type2),
-    fetch(TR, Info, Mps).
+    %% fetch(TR, Info, Mps).
+    {Parser, Mps1} = fetch(TR, Info, Mps),
+    add_fun_def(Type, Parser, Mps1).
+
+
 
 code_basic(Type, ParserFun, Mps) ->
     add_fun_def(Type, lift(ParserFun), Mps).
@@ -315,7 +326,9 @@ json_fun(LocalFun) ->
 %% Formats error messages for compiler 
 %%
 format_error({unexpected_type_decode, Type}) ->
-    format("Don't know how to decode type ~p", [Type]).
+    format("Don't know how to decode type ~p", [Type]);
+format_error({loop, Type}) ->
+    format("Cannot handle recursive type definition for type ~p", [Type]).
 
 format(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).

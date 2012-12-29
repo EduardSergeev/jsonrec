@@ -4,7 +4,7 @@
 -include("parsers.hrl").
 
 
--export([encode_gen/4]).
+-export([encode_gen/4, encode_gen_encoder/4]).
 
 -export([integer_to_json/1, float_to_json/1,
          binary_to_json/1, string_to_json/1,
@@ -16,6 +16,7 @@
 -define(TYPE_METHODS_OPT, type_methods).
 -define(TYPE_SURROGATES_OPT, type_surrogates).
 -define(NAME_HANDLER_OPT, name_handler).
+-define(ENCODE_ATTR, encode).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
@@ -49,8 +50,8 @@
         {defs = [],
          subs = [],
          attrs = [],
-         code_fun,
-         name_conv}).
+         name_conv,
+         types = gb_sets:new()}).
 
 -record(def_funs,
         {fun_name,
@@ -58,23 +59,25 @@
          g_fun,
          def}).
 
-encode_gen(QRec, Type, Info, Options) ->
-    encode_gen(encode, QRec, Type, Info, Options).
+encode_gen(QArg, Type, Info, Options) ->
+    code_gen(fun fetch/3, QArg, Type, Info, Options).
 
-encode_gen(Attr, QArg, Type, Info, Options) ->
+encode_gen_encoder(QArg, Type, Info, Options) ->
+    code_gen(fun gen_encode/3, QArg, Type, Info, Options).
+
+code_gen(CodeFun, QArg, Type, Info, Options) ->
     Type1 = norm_type_quote(?e(Type)),
     Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
     Subs1 = [norm_type(T) || T <- Subs],                      
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
                                   fun atom_to_list/1),
-    Attrs = meta:reify_attributes(Attr, ?e(Info)),
+    Attrs = meta:reify_attributes(?ENCODE_ATTR, ?e(Info)),
     Mps = #mps{
       defs = [],
       subs = Subs1,
       attrs = Attrs,
-      code_fun = fun gen_encode/3,
       name_conv = NameFun},
-    {VFun, Mps1} = gen_encode(type_ref(Type1), ?e(Info), Mps),
+    {VFun, Mps1} = CodeFun(type_ref(Type1), ?e(Info), Mps),
     RDefs = lists:reverse(Mps1#mps.defs),
     Fs = [?q(?s(FN) = ?s(Def))
           || {_, #def_funs{fun_name = FN, def = Def}} <- RDefs,
@@ -154,7 +157,7 @@ gen_encode({_UserType, _Args} = Type, Info, Mps) ->
     encode_underlying(Type, Info, Mps);
             
 gen_encode(Type, _Info, _Mps) ->
-    meta:error(?MODULE, unexpected_type_encode, Type).
+    meta:error(?MODULE, unexpected_type, Type).
 
 encode_fields(Fields, Info, Mps) ->
     NFs = lists:zip(lists:seq(2, length(Fields)+1), Fields),
@@ -211,7 +214,7 @@ encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
 %%
 %% General decode/encode functions
 %%
-fetch(Type, Info, #mps{code_fun = CodeFun} = Mps) ->
+fetch(Type, Info, Mps) ->
     case proplists:lookup(Type, Mps#mps.subs) of
         none ->
             Attrs = Mps#mps.attrs,
@@ -221,19 +224,26 @@ fetch(Type, Info, #mps{code_fun = CodeFun} = Mps) ->
                         {Type, #def_funs{v_fun = Fun}} ->
                             {Fun, Mps};
                         none ->
-                            CodeFun(Type, Info, Mps)
+                            Ts = Mps#mps.types,
+                            case gb_sets:is_member(Type, Ts) of
+                                false ->
+                                    Ts1 = gb_sets:add(Type, Ts),
+                                    gen_encode(Type, Info, Mps#mps{types = Ts1});
+                                true ->
+                                    meta:error(?MODULE, loop, Type)
+                            end
                     end;
                 {Type, {_,Args} = SType} when is_list(Args) ->
                     fetch(SType, Info, Mps);
                 {Type, Fun} ->
-                    QFun = json_fun(Fun),
-                    add_fun_def(Type, none, Mps, QFun)
+                    FunVFun = json_fun(Fun),
+                    add_fun_def(Type, none, Mps, FunVFun)
             end;
         {Type, {_,Args} = SType} when is_list(Args) ->
             fetch(SType, Info, Mps);
         {Type, Fun} ->
-            QFun = json_fun(Fun),
-            add_fun_def(Type, none, Mps, QFun)
+            FunVFun = json_fun(Fun),
+            add_fun_def(Type, none, Mps, FunVFun)
     end.
 
 encode_list(InnerType, Info, Mps) -> 
@@ -423,15 +433,26 @@ get_guard(Type, #mps{defs = Defs}) ->
 json_fun({Mod,Fun}) ->
     QM = ?v(?re(erl_parse:abstract(Mod))),
     QF = ?v(?re(erl_parse:abstract(Fun))),
-    ?q(?s(QM):?s(QF));
+    fun(_) ->
+            fun(Item) ->
+                    ?q(?s(QM):?s(QF)(?s(Item)))
+            end
+    end;
 json_fun(LocalFun) ->
-    ?v(?re(erl_parse:abstract(LocalFun))).
+    QFun = ?v(?re(erl_parse:abstract(LocalFun))),
+    fun(_) ->
+            fun(Item) ->
+                    ?q(?s(QFun)(?s(Item)))
+            end
+    end.
 
 %%
 %% Formats error messages for compiler 
 %%
-format_error({unexpected_type_encode, Type}) ->
-    format("Don't know how to encode type ~p", [Type]).
+format_error({unexpected_type, Type}) ->
+    format("Don't know how to encode type ~p", [Type]);
+format_error({loop, Type}) ->
+    format("Cannot handle recursive type definition for type ~p", [Type]).
 
 format(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).
