@@ -42,7 +42,7 @@
 -define(TYPE_QUOTE(Name, Args),
         {call, _Ln1, {atom, _Ln2, Name}, Args}).
 -define(LIST_QUOTE(Elem),
-        {cons, _Ln1, Elem, {lin, _Ln2}}).
+        {cons, _Ln1, Elem, {nil, _Ln2}}).
 
 
 -record(mps,
@@ -356,7 +356,7 @@ norm_type_quote(?TYPE_QUOTE(Name, Args)) ->
     {Name, Args1};
 norm_type_quote(?LIST_QUOTE(Elem)) ->
     InnerType = norm_type_quote(Elem),
-    {list, InnerType}.
+    {list, [InnerType]}.
 
 type_ref({type, _Ln, Tag, Args}) ->
     {Tag, [type_ref(A) || A <- Args]};

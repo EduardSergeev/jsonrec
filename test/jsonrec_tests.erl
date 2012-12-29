@@ -170,7 +170,7 @@ rec0_test() ->
          atom = some_atom,
          binary = <<"Bin">>,
          boolean = false},
-    decode_encode(rec0, Rec).
+    encode_decode(rec0, Rec).
 
 rec1_test() ->
     Rec = #rec1
@@ -179,7 +179,7 @@ rec1_test() ->
          recs = [#rec0{id = 3, atom = another_atom},
                  #rec0{id = 4, binary = <<"B2">>}],
          fi = <<"La">>},
-    decode_encode(rec1, Rec).
+    encode_decode(rec1, Rec).
 
 rec2_test() ->
     Rec = #rec2
@@ -187,7 +187,7 @@ rec2_test() ->
          ref_ids = [1,2,3,4],
          recs0 = [#rec0{id = 43, boolean = true}],
          arr = [5]},
-   decode_encode(rec2, Rec).
+   encode_decode(rec2, Rec).
 
 rec3_decode_test() ->
     Rec = #rec3
@@ -203,8 +203,8 @@ rec3_test() ->
         {id = 2,
          type = rec1,
          rec = #rec1{id = 11}},
-    decode_encode(rec3, Rec0),
-    decode_encode(rec3, Rec1).
+    encode_decode(rec3, Rec0),
+    encode_decode(rec3, Rec1).
 
 whitespace_test() ->
     Rec = #rec3{id = 1},
@@ -230,12 +230,39 @@ string_escape_test() ->
 
 string_test() ->
     Rec = #rec6{id = 1, string = "Some string\n\r"},
-    decode_encode(rec6, Rec),
+    encode_decode(rec6, Rec),
     Json = list_to_binary(encode(Rec)),
     ?assertMatch(<<"{\"id\":1,\"string\":\"Some string\\n\\r\"}">>,
                  Json).
     
-    
+
+simple_list_test() ->
+    E = fun(Rec) ->
+                ?encode_gen([integer()], Rec)
+        end,
+    D = fun(Bin) ->
+                ?decode_gen([integer()], Bin)
+        end,
+    Rs = [1,2,3],
+    IoList = E(Rs),
+    Json = list_to_binary(IoList),
+    {ok, Rs1} = D(Json),
+    ?assertEqual(Rs, Rs1).
+
+record_list_test() ->
+    E = fun(Rec) ->
+                ?encode_gen([#rec6{}], Rec)
+        end,
+    D = fun(Bin) ->
+                ?decode_gen([#rec6{}], Bin)
+        end,
+    Rs = [#rec6{id = 1, string = "test1"},
+          #rec6{id = 2, string = "test2"}],
+    IoList = E(Rs),
+    Json = list_to_binary(IoList),
+    {ok, Rs1} = D(Json),
+    ?assertEqual(Rs, Rs1).
+
 
 %%
 %% 'name_conv' option test
@@ -369,7 +396,7 @@ custom_parser_error_test() ->
 %%
 %% Round-trip encoding/decoding
 %%    
-decode_encode(Tag, Item) ->
+encode_decode(Tag, Item) ->
     IoList = encode(Item),
     Json = list_to_binary(IoList),
     %% ?debugFmt("~p~n", [Json]),
