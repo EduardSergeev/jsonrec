@@ -2,7 +2,6 @@
 
 - Add "atom conversion" option - similar to "field name conversion"
 - Add type annotations for dyalizer
-- Extract JSON-related parsers from 'parsers' module to maybe 'json_parsers'
 - Get rid of lists:filter in parsers:object/1 (optimisation)
 - Add `jsonrec:datetime_to_binary` and reverse functions
 - Add an option to `dump_code` in a particular function (not only for entire module as now)

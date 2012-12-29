@@ -1,7 +1,7 @@
 -module(jsonrec_decode).
 
 -include_lib("meta/include/meta_syntax.hrl").
--include("parsers.hrl").
+-include("json_parsers.hrl").
 
 
 -export([decode_gen/4, decode_gen_parser/4]).
@@ -80,7 +80,7 @@ code_gen(Type, Info, Options) ->
       attrs = Attrs,
       name_conv = NameFun},
     {Parser, _} = gen_decode(type_ref(Type1), ?e(Info), Mps),
-    right(lift(?q(parsers:ws_p)), Parser).
+    right(lift(?q(json_parsers:ws_p)), Parser).
 
 
 gen_decode({record, [{atom, RecName}]} = Type, Info, Mps) ->
@@ -106,30 +106,30 @@ gen_decode({union, Types} = Type, Info, Mps) ->
     add_fun_def(Type, Parser, Mps1);
 
 gen_decode({integer, []} = Type, _Info, Mps) ->
-    P = ?q(parsers:integer_p),
+    P = ?q(json_parsers:integer_p),
     code_basic(Type, P, Mps);
 
 gen_decode({binary, []} = Type, _Info, Mps) ->
-    P = ?q(parsers:string_p),
+    P = ?q(json_parsers:string_p),
     code_basic(Type, P, Mps);
 gen_decode({string, []} = Type, _Info, Mps) ->
     P = bind(
-          parsers:string(),
+          string(),
           fun(S) ->
                   return(
                     ?q(binary_to_list(?s(S))))
           end),
     add_fun_def(Type, P, Mps);
 gen_decode({float, []} = Type, _Info, Mps) ->
-    P = ?q(parsers:float_p),
+    P = ?q(json_parsers:float_p),
     code_basic(Type, P, Mps);
 gen_decode({boolean, []} = Type, _Info, Mps) ->
-    P = ?q(parsers:boolean_p),
+    P = ?q(json_parsers:boolean_p),
     code_basic(Type, P, Mps);
 gen_decode({atom, []} = Type, _Info, Mps) ->
     Parser =
         bind(
-          parsers:string(),
+          string(),
           fun(S) ->
                   return(
                     ?q(binary_to_existing_atom(?s(S), utf8)))
@@ -137,7 +137,7 @@ gen_decode({atom, []} = Type, _Info, Mps) ->
     add_fun_def(Type, Parser, Mps);
 
 gen_decode({atom, undefined} = Type, _Info, Mps) ->
-    P = ?q(parsers:null_p),
+    P = ?q(json_parsers:null_p),
     code_basic(Type, P, Mps);
 
 gen_decode({atom, Atom} = Type, _Info, Mps) ->
@@ -150,7 +150,7 @@ gen_decode({atom, Atom} = Type, _Info, Mps) ->
     add_fun_def(Type, Parser, Mps);
 
 gen_decode({any, []} = Type, _Info, Mps) ->
-    P = ?q(parsers:any_json_p),
+    P = ?q(json_parsers:any_json_p),
     code_basic(Type, P, Mps);
 
 gen_decode({_UserType,_Args} = Type, Info, Mps) ->
@@ -167,7 +167,7 @@ gen_object_parser(Types, Info, Mps) ->
                   fun({N,T},M) ->
                           decode_field(N, T, Info, M)
                   end, Mps, NTs),
-    P = parsers:object(Es),
+    P = object(Es),
     {P, Mps1}.
 
 with_defaults(RecName, Types, Tail) ->
@@ -230,7 +230,7 @@ fetch(Type, Info, Mps) ->
 
 code_list(InnerType, Info, Mps) -> 
     {Parser, Mps1} = fetch(type_ref(InnerType), Info, Mps),
-    add_fun_def({list, [InnerType]}, parsers:array(Parser), Mps1).
+    add_fun_def({list, [InnerType]}, array(Parser), Mps1).
 
 code_union(Types, Info, Mps) ->
     P0 = fail(?q(none_matches)),
