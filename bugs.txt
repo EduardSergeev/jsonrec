@@ -1,7 +1,3 @@
 
 
-
-- Need useful errors in `decode` whenever parsing fails.
-For example in some nested record's fields could not be matched against a specified set of atoms the appropriate place and error should be emmited instead of silently skipping the outer structure.
-
-- `undefined` specified as a type for a field leads to hanging of the compilation
+- `undefined` specified as a type for a field leads to `function_clause` error
