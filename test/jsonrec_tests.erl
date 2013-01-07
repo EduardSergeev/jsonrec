@@ -14,7 +14,7 @@
 -type my_integer() :: integer().
 -type my_list(A) :: [A].
 
-%% -compile(export_all).
+-compile(export_all).
 
 -record(rec0,
         {id :: integer(),
@@ -73,6 +73,11 @@
 -encode({{record,[{atom,rec_rec}]}, encoder}).
 -decode({{record,[{atom,rec_rec}]}, rec_rec_parser}).
 
+-record(rec7, 
+        {f1 :: atom1,
+         f2 = atom2 :: atom2,
+         f3 :: undefined,
+         f4 = undefined :: undefined}).
 
 
 encode(Rec) when is_integer(Rec) ->
@@ -94,31 +99,39 @@ encode(#rec5{} = Rec) ->
 encode(#rec6{} = Rec) ->
     ?encode_gen(#rec6{}, Rec);
 encode(#rec_rec{} = Rec) ->
-    ?encode_gen(#rec_rec{}, Rec).
+    ?encode_gen(#rec_rec{}, Rec);
+encode(#rec7{} = Rec) ->
+     ?encode_gen(#rec7{}, Rec).
 
 
-decode(integer, Struct) ->
-    ?decode_gen(my_integer(), Struct);
-decode(atom, Struct) ->
-    ?decode_gen(status(), Struct);
-decode(rec0, Struct) ->
-    ?decode_gen(#rec0{}, Struct);
-decode(rec1, Struct) ->
-    ?decode_gen(#rec1{}, Struct);
-decode(rec2, Struct) ->
-    ?decode_gen(#rec2{}, Struct);
-decode(rec3, Struct) ->
-    {ok, #rec3{type = Type, rec = Bin} = Rec} = ?decode_gen(#rec3{}, Struct),
-    {ok, RecField} = decode(Type, Bin),
-    {ok, Rec#rec3{rec = RecField}};
-decode(rec4, Struct) ->
-    ?decode_gen(#rec4{}, Struct);
-decode(rec5, Struct) ->
-    ?decode_gen(#rec5{}, Struct);
-decode(rec6, Struct) ->
-    ?decode_gen(#rec6{}, Struct);
+decode(integer, Bin) ->
+    ?decode_gen(my_integer(), Bin);
+decode(atom, Bin) ->
+    ?decode_gen(status(), Bin);
+decode(rec0, Bin) ->
+    ?decode_gen(#rec0{}, Bin);
+decode(rec1, Bin) ->
+    ?decode_gen(#rec1{}, Bin);
+decode(rec2, Bin) ->
+    ?decode_gen(#rec2{}, Bin);
+decode(rec3, Bin) ->
+    {ok, #rec3{type = Type, rec = RecBin} = Rec} = ?decode_gen(#rec3{}, Bin),
+    case decode(Type, RecBin) of
+        {ok, RecField} ->
+            {ok, Rec#rec3{rec = RecField}};
+        Error ->
+            Error
+    end;
+decode(rec4, Bin) ->
+    ?decode_gen(#rec4{}, Bin);
+decode(rec5, Bin) ->
+    ?decode_gen(#rec5{}, Bin);
+decode(rec6, Bin) ->
+    ?decode_gen(#rec6{}, Bin);
 decode(rec_rec, Bin) ->
-    ?decode_gen(#rec_rec{}, Bin).
+    ?decode_gen(#rec_rec{}, Bin);
+decode(rec7, Bin) ->
+    ?decode_gen(#rec7{}, Bin).
 
 
 decode_test_() ->
@@ -294,6 +307,13 @@ self_reference_test() ->
           rec = #rec_rec
           {id = 3}}},
     encode_decode(rec_rec, Rec).
+
+undefined_atom_test_() ->
+    [{"Default values",
+      ?_test(encode_decode(rec7, #rec7{}))},
+     {"All values are set",
+      ?_test(encode_decode(rec7, #rec7{f1 = atom1, f2 = atom2}))}].
+    
 
 
 %%

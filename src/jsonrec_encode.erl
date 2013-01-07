@@ -22,6 +22,8 @@
 
 -define(TYPE(Type, Args),
         {type, _Ln3, Type, Args}).
+-define(ATOM_TYPE(Atom),
+        {atom, _Ln, Atom}).
 -define(FIELD(Name),
         {record_field, _Ln1,
          {atom, _Ln2, Name}}).
@@ -32,11 +34,11 @@
 -define(TYPED_FIELD(Name, Type),
         {typed_record_field,
          ?FIELD(Name),
-         ?TYPE(_Type, _Args) = Type}).
+         Type}).
 -define(TYPED_FIELD(Name, Type, Default),
         {typed_record_field,
          ?FIELD(Name, Default),
-         ?TYPE(_Type, _Args) = Type}).
+         Type}).
 
 -define(RECORD_QUOTE(Name),
         {record, _Ln, Name, _Args}).
@@ -166,8 +168,8 @@ encode_fields(Fields, Info, Mps) ->
                         encode_field(I, T, Info, M)
                 end, Mps, NFs),
     Es1 = lists:reverse(Es),
-    {?q(fun(Record) ->
-                [<<"{">>, ?s(loop(?r(Record), ?q([]), Es1)), <<"}">>]
+    {?q(fun(_Rec) ->
+                [<<"{">>, ?s(loop(?r(_Rec), ?q([]), Es1)), <<"}">>]
         end),
      Mps1}.
 
@@ -199,14 +201,24 @@ encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
     AFN = ?v(?re(erl_parse:abstract("\"" ++ NC(Fn) ++ "\""))),
     QInd = ?v(?re(erl_parse:abstract(Ind))),
     DefFun = fun(QRec, QAcc) ->
-                     ?q(begin
-                            V = ?s(VFun(?q(element(?s(QInd), ?s(QRec))))),
-                            if V =/= undefined ->
-                                    [<<$,>>, ?s(AFN), <<":">>, ?s(?r(V)) | ?s(QAcc)];
-                               true ->
-                                    ?s(QAcc)
-                            end
-                        end)
+                     case nullable_kind(Type) of
+                         nullable ->
+                             ?q(begin
+                                    V = ?s(VFun(?q(element(?s(QInd), ?s(QRec))))),
+                                    if V =/= undefined ->
+                                            [<<$,>>, ?s(AFN), <<":">>, V
+                                             | ?s(QAcc)];
+                                       true ->
+                                            ?s(QAcc)
+                                    end
+                                end);
+                         non_nullable ->
+                             ?q([<<$,>>, ?s(AFN), <<":">>,
+                                 ?s(VFun(?q(element(?s(QInd), ?s(QRec)))))
+                                 | ?s(QAcc)]);
+                         null ->
+                             QAcc
+                     end
              end,
     {DefFun, Mps1}.
 
@@ -445,6 +457,24 @@ json_fun(LocalFun) ->
                     ?q(?s(QFun)(?s(Item)))
             end
     end.
+
+nullable_kind({atom, undefined}) ->
+     null;
+nullable_kind(Type) ->
+    case is_undefinable(Type) of
+        true ->
+            nullable;
+        false ->
+            non_nullable
+    end.
+
+is_undefinable({union, Types}) ->
+    lists:any(fun is_undefinable/1, Types);
+is_undefinable({atom, undefined}) ->
+    true;
+is_undefinable(_Type) ->
+    false.
+
 
 %%
 %% Formats error messages for compiler 

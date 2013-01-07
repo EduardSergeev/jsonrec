@@ -28,11 +28,11 @@
 -define(TYPED_FIELD(Name, Type),
         {typed_record_field,
          ?FIELD(Name),
-         ?TYPE(_Type, _Args) = Type}).
+         Type}).
 -define(TYPED_FIELD(Name, Type, Default),
         {typed_record_field,
          ?FIELD(Name, Default),
-         ?TYPE(_Type, _Args) = Type}).
+         Type}).
 
 -define(RECORD_QUOTE(Name),
         {record, _Ln, Name, _Args}).
