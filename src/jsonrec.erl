@@ -1,5 +1,12 @@
+%%%-------------------------------------------------------------------
+%%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
+%%% @copyright (C) 2013, Eduard Sergeev
+%%% @doc
+%%%
+%%% @end
+%%% Created : 17 Jul 2012 by <eduard.sergeev@gmail.com>
+%%%-------------------------------------------------------------------
 -module(jsonrec).
-
 
 -export([atom_to_pascal/1, atom_to_camel/1]).
 

@@ -1,3 +1,11 @@
+%%%-------------------------------------------------------------------
+%%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
+%%% @copyright (C) 2013, Eduard Sergeev
+%%% @doc
+%%%
+%%% @end
+%%% Created : 20 Nov 2012 by <eduard.sergeev@gmail.com>
+%%%-------------------------------------------------------------------
 -module(parsers_tests).
 
 -include("../src/parsers.hrl").

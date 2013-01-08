@@ -1,3 +1,11 @@
+%%%-------------------------------------------------------------------
+%%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
+%%% @copyright (C) 2013, Eduard Sergeev
+%%% @doc
+%%%
+%%% @end
+%%% Created : 28 Nov 2012 by <eduard.sergeev@gmail.com>
+%%%-------------------------------------------------------------------
 -module(jsonrec_decode).
 
 -include_lib("meta/include/meta_syntax.hrl").
