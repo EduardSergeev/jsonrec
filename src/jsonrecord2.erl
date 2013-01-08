@@ -3,8 +3,7 @@
 -include_lib("meta/include/meta.hrl").
 -include_lib("meta/include/meta_syntax.hrl").
 
--export([encode_gen/3, encode_gen/4,
-         decode_gen/3, decode_gen/4]).
+-export([encode_gen/4, decode_gen/4]).
 
 -export([format_error/1]).
 
@@ -47,15 +46,8 @@
          code_fun,
          name_conv}).
 
-encode_gen(QRec, Type, Info) ->
-    encode_gen(QRec, Type, Info, []).
-
 encode_gen(QRec, Type, Info, Options) ->
     code_gen(fun gen_encode/3, encode, QRec, Type, Info, Options).
-
-
-decode_gen(QStr, Type, Info) ->
-    decode_gen(QStr, Type, Info, []).
 
 decode_gen(QStr, Type, Info, Options) ->
     code_gen(fun gen_decode/3, decode, QStr, Type, Info, Options).

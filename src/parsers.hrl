@@ -17,3 +17,5 @@
          to_parser/2,
 
          sequence/1]).
+
+-define(parser_result(Val), parsers:success(Val) | parsers:failure()).

@@ -41,18 +41,26 @@
 -define(LIST_QUOTE(Elem),
         {cons, _Ln1, Elem, {nil, _Ln2}}).
 
+-type decode_option() :: any().
+-type decode_options() :: [decode_option()].
+
 
 -record(mps,
         {defs = [],
          subs = [],
          attrs = [],
-         name_conv,
+         name_conv :: fun((atom()) -> string()),
          types = gb_sets:new()}).
 
 -record(def_funs,
-        {parser}).
+        {parser :: parsers:q_parser(any())}).
 
-
+-spec decode_gen(Arg, Type, Info, Options) -> meta:quote(FunBody) when
+      Arg :: meta:quote(#var{}),
+      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Info :: meta:quote(meta:info()),
+      Options :: meta:quote(decode_options()),
+      FunBody :: any().
 decode_gen(QBin, Type, Info, Options) ->
     Parser = code_gen(fun fetch/3, Type, Info, Options),
     ?q(case ?s(to_parser(Parser, QBin)) of
@@ -62,6 +70,12 @@ decode_gen(QBin, Type, Info, Options) ->
                E
        end).
 
+-spec decode_gen_parser(Arg, Type, Info, Options) -> meta:quote(FunBody) when
+      Arg :: meta:quote(#var{}),
+      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Info :: meta:quote(meta:info()),
+      Options :: meta:quote(decode_options()),
+      FunBody :: any().
 decode_gen_parser(QBin, Type, Info, Options) ->
     Parser = code_gen(fun gen_decode/3, Type, Info, Options),
     to_parser(Parser, QBin).
@@ -325,13 +339,14 @@ json_fun(LocalFun) ->
 %%
 %% Formats error messages for compiler 
 %%
+-spec format_error(any()) -> iolist().
 format_error({unexpected_type_decode, Type}) ->
     format("Don't know how to decode type ~p", [Type]);
 format_error({loop, Type}) ->
     format("Cannot handle recursive type definition for type ~p", [Type]).
 
 format(Format, Args) ->
-    lists:flatten(io_lib:format(Format, Args)).
+    io_lib:format(Format, Args).
 
 %%
 %% Utils

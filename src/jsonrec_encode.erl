@@ -47,23 +47,53 @@
 -define(LIST_QUOTE(Elem),
         {cons, _Ln1, Elem, {nil, _Ln2}}).
 
+-type type_quote() :: {record, integer(), atom(), []} |
+                      {call, integer(), {atom, integer(), atom()}, [type_quote()]} |
+                      {cons, integer(), type_quote(), {nil, integer()}}.
+
+-type name_conv() :: fun((atom()) -> string()).
 
 -record(mps,
         {defs = [],
          subs = [],
          attrs = [],
-         name_conv,
+         name_conv :: name_conv(),
          types = gb_sets:new()}).
 
 -record(def_funs,
-        {fun_name,
-         v_fun,
-         g_fun,
-         def}).
+        {fun_name :: meta:quote(any()),
+         v_fun :: fun((meta:quote(any())) -> meta:quote(any())),
+         g_fun :: fun((meta:quote(any())) -> meta:quote(any())) | none,
+         def :: meta:quote(any()) | none}).
 
+-type form() :: erl_parse:abstract_form().
+-type type() :: {{record, atom()}, form(), []} |
+                {atom(), form(), [type()]} |
+                {atom(), [type()]}.
+-type norm_type() :: {record, [{atom, atom()}]} |
+                     {atom(), [norm_type()]}.
+
+
+-type encode_option() :: {type_methods, [type()]} |
+                         {type_surrogates, [type()]} |
+                         {name_handler, name_conv()}.
+-type encode_options() :: [encode_option()].
+
+-spec encode_gen(Arg, Type, Info, Options) -> meta:quote(FunBody) when
+      Arg :: meta:quote(#var{}),
+      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Info :: meta:quote(meta:info()),
+      Options :: meta:quote(encode_options()),
+      FunBody :: any().
 encode_gen(QArg, Type, Info, Options) ->
     code_gen(fun fetch/3, QArg, Type, Info, Options).
 
+-spec encode_gen_encoder(Arg, Type, Info, Options) -> meta:quote(FunBody) when
+      Arg :: meta:quote(#var{}),
+      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Info :: meta:quote(meta:info()),
+      Options :: meta:quote(encode_options()),
+      FunBody :: any().
 encode_gen_encoder(QArg, Type, Info, Options) ->
     code_gen(fun gen_encode/3, QArg, Type, Info, Options).
 
@@ -93,6 +123,11 @@ code_gen(CodeFun, QArg, Type, Info, Options) ->
 %% %%
 %% %% Encoding
 %% %%
+-spec gen_encode(Type, Info, Mps) -> {VFun, Mps} when
+      Type :: norm_type(),
+      Info :: meta:info(),
+      Mps :: #mps{},
+      VFun :: fun((meta:quote(any())) -> meta:quote(any())).
 gen_encode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {Def, Mps1} = encode_fields(Fields, Info, Mps),
@@ -371,6 +406,7 @@ escape_iter(Inv, _, _, _) ->
 %%
 %% Utils
 %%
+-spec norm_type_quote(type_quote()) -> norm_type().
 norm_type_quote(?RECORD_QUOTE(Name)) ->
     {record,[{atom,Name}]};
 norm_type_quote(?TYPE_QUOTE(Name, Args)) ->
@@ -387,6 +423,7 @@ type_ref({atom, _Ln, Atom}) ->
 type_ref(Converted) ->
     Converted.
 
+-spec norm_type(type()) -> norm_type().
 norm_type({{record, Name}, _Def, []}) ->
     {record,[{atom,Name}]};
 norm_type({Name, _Def, Args}) ->
@@ -408,7 +445,6 @@ ground_type({Name, Def, Params}, Args) ->
           end,
     Def1 = map(Fun, Def),
     {Name, Def1, []}.
-
 
 add_fun_def(Type, Def, Mps) ->
     add_fun_def(Type, Def, Mps, id).
@@ -479,13 +515,14 @@ is_undefinable(_Type) ->
 %%
 %% Formats error messages for compiler 
 %%
+-spec format_error(any()) -> iolist().
 format_error({unexpected_type, Type}) ->
     format("Don't know how to encode type ~p", [Type]);
 format_error({loop, Type}) ->
     format("Cannot handle recursive type definition for type ~p", [Type]).
 
 format(Format, Args) ->
-    lists:flatten(io_lib:format(Format, Args)).
+    io_lib:format(Format, Args).
 
 
 %%
