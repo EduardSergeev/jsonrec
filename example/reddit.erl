@@ -22,7 +22,7 @@
          ups :: integer(),
          downs :: integer()}).
 
--type comment() :: #comment{}.
+%%-type comment() :: #comment{}.
 
 
 -record(post, %% t3
@@ -35,7 +35,7 @@
          edited :: boolean() | float()}).
 
 
--type contents() :: [#content{}].
+%% -type contents() :: [#content{}].
 
 -record(listing,
        {before :: binary(),
@@ -43,8 +43,12 @@
         children = [] :: [#content{}]}).
 
 
--decode({{comment,[]}, comment_parser}).
--decode({{record,[{atom,content}]}, content_parser}).
+-decode({parsers,
+         [{{record, comment}, comment_parser},
+          {{record, content}, content_parser}]}).
+
+
+-encode({encoders, [{{record,content}, content_encoder}]}).
 
 
 decode(Bin) ->
@@ -56,7 +60,7 @@ decode(Bin) ->
     end.
 
 decode_many(Bin) ->
-    ?decode_gen(contents(), Bin).
+    ?decode_gen([#content{}], Bin).
 
 
 content_parser(Bin) ->
@@ -77,20 +81,13 @@ content_parser(Bin) ->
 
 
 data_parser(<<"t1">>, Bin) ->
-    %% io:format("t1~n"),
-    ?decode_gen_parser(comment(), Bin);
+    ?decode_gen_parser(#comment{}, Bin);
 data_parser(<<"t3">>, Bin) ->
-    %% io:format("t3~n"),
     ?decode_gen_parser(#post{}, Bin);
 data_parser(<<"Listing">>, Bin) ->
-    %% io:format("Listing~n"),
     ?decode_gen_parser(#listing{}, Bin);
-%% data_parser(Unk, Bin) ->
-%%    io:format("Ukn: ~p~n", [Unk]),
-     %% {error, {{unknown_kind, Unk}, Bin}}.
-data_parser(Unk, Bin) ->
-   %% io:format("Ukn: ~p~n", [Unk]),
-   parsers:skip_json_p(Bin).
+data_parser(_Unk, Bin) ->
+    json_parsers:skip_json_p(Bin).
 
 
 fetch() ->
