@@ -13,8 +13,8 @@
 -export([format_error/1]).
 
 
--define(TYPE_METHODS_OPT, type_methods).
--define(TYPE_SURROGATES_OPT, type_surrogates).
+-define(ENCODERS_OPT, encoders).
+-define(SURROGATES_OPT, surrogate_types).
 -define(NAME_HANDLER_OPT, name_handler).
 -define(ENCODE_ATTR, encode).
 
@@ -47,24 +47,25 @@
 -define(LIST_QUOTE(Elem),
         {cons, _Ln1, Elem, {nil, _Ln2}}).
 
+-record(mps,
+        {defs = dict:new(),
+         subs :: dict(),
+         name_conv :: name_conv(),
+         types = gb_sets:new()}).
+
+-record(def_funs,
+        {ind :: integer(),
+         fun_name :: meta:quote(any()),
+         v_fun :: fun((meta:quote(any())) -> meta:quote(any())),
+         g_fun :: fun((meta:quote(any())) -> meta:quote(any())) | none,
+         def :: meta:quote(any()) | none}).
+
+
 -type type_quote() :: {record, integer(), atom(), []} |
                       {call, integer(), {atom, integer(), atom()}, [type_quote()]} |
                       {cons, integer(), type_quote(), {nil, integer()}}.
 
 -type name_conv() :: fun((atom()) -> string()).
-
--record(mps,
-        {defs = [],
-         subs = [],
-         attrs = [],
-         name_conv :: name_conv(),
-         types = gb_sets:new()}).
-
--record(def_funs,
-        {fun_name :: meta:quote(any()),
-         v_fun :: fun((meta:quote(any())) -> meta:quote(any())),
-         g_fun :: fun((meta:quote(any())) -> meta:quote(any())) | none,
-         def :: meta:quote(any()) | none}).
 
 -type form() :: erl_parse:abstract_form().
 -type type() :: {{record, atom()}, form(), []} |
@@ -74,20 +75,70 @@
                      {atom(), [norm_type()]}.
 
 
--type encode_option() :: {type_methods, [type()]} |
-                         {type_surrogates, [type()]} |
-                         {name_handler, name_conv()}.
 -type encode_options() :: [encode_option()].
+-type encode_option() :: encoders() | name_handler().
 
+-type encoders() :: {encoders, [encoder_type_ref() | encoder_fun_ref()]}.
+%% This option is used to specify custom encoding for a type.
+
+-type encoder_type_ref() :: {record, Name :: atom()} |
+                            {TypeName :: atom(), Args :: [encoder_type_ref()]}.
+-type encoder_fun_ref() :: local_fun_ref() | remote_fun_ref().
+-type local_fun_ref() :: FunName :: atom().
+-type remote_fun_ref() :: {Mod :: atom(), FunName :: atom()}.
+
+-type name_handler() :: {name_handler, name_conv()}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Generates JSON "encode" function body for JSON serialization
+%% using type annotation.
+%%
+%% Note: This is `meta' function and normally it should not be used directly.
+%% Use `?encode_gen/2' and `?encode_gen/3' macros instead.
+%% <ul>
+%% <li>`Arg' is {@type meta:quote()} reference to generated function input parameter</li>
+%% <li>`Type' is {@type meta:quote()} of the type being JSON encoded</li>
+%% <li>`Info' is {@type meta:info()} structure returned by {@link meta:reify/0}</li>
+%% <li>`Options' is {@type meta:quote()} of a list of options {@type encode_options()}</li>
+%% </ul>
+%%
+%% Typical usage:
+%% ```encode(#my_record{} = Rec) ->
+%%      ?encode_gen(#my_record{}, Rec).'''
+%% Upon compilation this code will generate the code which outputs
+%% JSON in the form of binary {@type iolist()} from passed `#my_record{}'
+%% @end
+%%--------------------------------------------------------------------
 -spec encode_gen(Arg, Type, Info, Options) -> meta:quote(FunBody) when
-      Arg :: meta:quote(#var{}),
-      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Arg :: meta:quote(Var :: any()),
+      Type :: meta:quote(Type :: any()),
       Info :: meta:quote(meta:info()),
       Options :: meta:quote(encode_options()),
       FunBody :: any().
-encode_gen(QArg, Type, Info, Options) ->
-    code_gen(fun fetch/3, QArg, Type, Info, Options).
+encode_gen(Arg, Type, Info, Options) ->
+    code_gen(fun fetch_vfun/3, Arg, Type, Info, Options).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Generates JSON encoder using type annotation.
+%%
+%% Similar to {@link encode_gen/3} but `-encode` attributes are ignored
+%% for top-level type `Type' (2nd argument of the function).
+%% All nested types are treated identically to {@link encode_gen/3} behaviour
+%% The resulting function is typically used in {@type encoder_fun_ref()}
+%%
+%% Note: This is `meta' function and normally it should not be used directly.
+%% Use `?encode_gen_encoder/2' and `?encode_gen_encode/3' macros instead.
+%%
+%% <ul>
+%% <li>`Arg' is {@type meta:quote()} reference to generated function input parameter</li>
+%% <li>`Type' is {@type meta:quote()} of the type being JSON encoded</li>
+%% <li>`Info' is {@type meta:info()} structure returned by {@link meta:reify/0}</li>
+%% <li>`Options' is {@type meta:quote()} of a list of options {@type encode_options()}</li>
+%% </ul>
+%% @end
+%%--------------------------------------------------------------------
 -spec encode_gen_encoder(Arg, Type, Info, Options) -> meta:quote(FunBody) when
       Arg :: meta:quote(#var{}),
       Type :: meta:quote(?TYPE(atom(), [any()])),
@@ -95,24 +146,36 @@ encode_gen(QArg, Type, Info, Options) ->
       Options :: meta:quote(encode_options()),
       FunBody :: any().
 encode_gen_encoder(QArg, Type, Info, Options) ->
-    code_gen(fun gen_encode/3, QArg, Type, Info, Options).
+    CodeFun = fun(T, I, M) ->
+                      {#def_funs{v_fun = VFun}, M1} = gen_encode(T, I, M),
+                      {VFun, M1}
+              end,
+    code_gen(CodeFun, QArg, Type, Info, Options).
 
 code_gen(CodeFun, QArg, Type, Info, Options) ->
     Type1 = norm_type_quote(?e(Type)),
-    Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
-    Subs1 = [norm_type(T) || T <- Subs],                      
-    NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
-                                  fun atom_to_list/1),
     Attrs = meta:reify_attributes(?ENCODE_ATTR, ?e(Info)),
+    AEs = lists:flatten(proplists:get_all_values(?ENCODERS_OPT, Attrs)),
+    ASs = lists:flatten(proplists:get_all_values(?SURROGATES_OPT, Attrs)),
+    OEs = proplists:get_value(?ENCODERS_OPT, ?e(Options), []),
+    OSs = proplists:get_value(?SURROGATES_OPT, ?e(Options), []),
+    Subs = [handle_encoder(E) || E <- AEs ++ OEs]
+        ++ [handle_surrogate(S) || S <- ASs ++ OSs],
+    DSubs = dict:from_list(Subs),
+    NameFun = proplists:get_value(
+                ?NAME_HANDLER_OPT, ?e(Options),
+                fun atom_to_list/1),
     Mps = #mps{
-      defs = [],
-      subs = Subs1,
-      attrs = Attrs,
+      subs = DSubs,
       name_conv = NameFun},
     {VFun, Mps1} = CodeFun(type_ref(Type1), ?e(Info), Mps),
-    RDefs = lists:reverse(Mps1#mps.defs),
+    Defs = [D || {_, D} <- dict:to_list(Mps1#mps.defs)],
+    SDefs = lists:sort(
+              fun(L,R) ->
+                      L#def_funs.ind =< R#def_funs.ind
+              end, Defs),
     Fs = [?q(?s(FN) = ?s(Def))
-          || {_, #def_funs{fun_name = FN, def = Def}} <- RDefs,
+          || #def_funs{fun_name = FN, def = Def} <- SDefs,
              Def /= none],
     Call = VFun(QArg),
     ?v(?re(erl_syntax:block_expr(
@@ -120,14 +183,11 @@ code_gen(CodeFun, QArg, Type, Info, Options) ->
              ++ [?s(Call)]))).
 
 
-%% %%
-%% %% Encoding
-%% %%
--spec gen_encode(Type, Info, Mps) -> {VFun, Mps} when
+-spec gen_encode(Type, Info, Mps) -> {DefFuns, Mps} when
       Type :: norm_type(),
       Info :: meta:info(),
       Mps :: #mps{},
-      VFun :: fun((meta:quote(any())) -> meta:quote(any())).
+      DefFuns :: #def_funs{}.
 gen_encode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
     {Def, Mps1} = encode_fields(Fields, Info, Mps),
@@ -190,6 +250,9 @@ gen_encode({any, []} = Type, _Info, Mps) ->
            end,
     add_fun_def(Type, none, Mps, FunVFun, GFun);
 
+gen_encode({tuple, _Args} = Type, _Info, _Mps) ->
+    meta:error(?MODULE, tuple_unsupported, Type);
+
 gen_encode({_UserType, _Args} = Type, Info, Mps) ->
     encode_underlying(Type, Info, Mps);
             
@@ -232,7 +295,7 @@ encode_field(Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
     encode_record(Ind, Fn, type_ref(Type), Info, Mps).
 
 encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
-    {VFun, Mps1} = fetch(Type, Info, Mps),
+    {VFun, Mps1} = fetch_vfun(Type, Info, Mps),
     AFN = ?v(?re(erl_parse:abstract("\"" ++ NC(Fn) ++ "\""))),
     QInd = ?v(?re(erl_parse:abstract(Ind))),
     DefFun = fun(QRec, QAcc) ->
@@ -259,42 +322,37 @@ encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
 
 
 %%
-%% General decode/encode functions
+%% General encode functions
 %%
+fetch_vfun(Type, Info, Mps) ->
+    {#def_funs{v_fun = VFun}, Mps1} = fetch(Type, Info, Mps),
+    {VFun, Mps1}.
+    
 fetch(Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps#mps.subs) of
-        none ->
-            Attrs = Mps#mps.attrs,
-            case proplists:lookup(Type, Attrs) of
-                none ->
-                    case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, #def_funs{v_fun = Fun}} ->
-                            {Fun, Mps};
-                        none ->
-                            Ts = Mps#mps.types,
-                            case gb_sets:is_member(Type, Ts) of
-                                false ->
-                                    Ts1 = gb_sets:add(Type, Ts),
-                                    gen_encode(Type, Info, Mps#mps{types = Ts1});
-                                true ->
-                                    meta:error(?MODULE, loop, Type)
-                            end
-                    end;
-                {Type, {_,Args} = SType} when is_list(Args) ->
-                    fetch(SType, Info, Mps);
-                {Type, Fun} ->
-                    FunVFun = json_fun(Fun),
-                    add_fun_def(Type, none, Mps, FunVFun)
+    case dict:find(Type, Mps#mps.subs) of
+        error ->
+            case dict:find(Type, Mps#mps.defs) of
+                {ok, DefFuns} ->
+                    {DefFuns, Mps};
+                error ->
+                    Ts = Mps#mps.types,
+                    case gb_sets:is_member(Type, Ts) of
+                        false ->
+                            Ts1 = gb_sets:add(Type, Ts),
+                            gen_encode(Type, Info, Mps#mps{types = Ts1});
+                        true ->
+                            meta:error(?MODULE, loop, Type)
+                    end
             end;
-        {Type, {_,Args} = SType} when is_list(Args) ->
+        {ok, {_,Args} = SType} when is_list(Args) ->
             fetch(SType, Info, Mps);
-        {Type, Fun} ->
+        {ok, Fun} ->
             FunVFun = json_fun(Fun),
             add_fun_def(Type, none, Mps, FunVFun)
     end.
 
 encode_list(InnerType, Info, Mps) -> 
-    {Fun, Mps1} = fetch(type_ref(InnerType), Info, Mps),
+    {Fun, Mps1} = fetch_vfun(type_ref(InnerType), Info, Mps),
     Def = ?q(fun([]) ->
                      <<"[]">>;
                 (Es) ->
@@ -311,8 +369,8 @@ encode_union(Types, Info, Mps) ->
         lists:mapfoldl(
           fun(TA, Mps1) ->
                   Type = type_ref(TA),
-                  {VFun, Mps2} = fetch(Type, Info, Mps1),
-                  QF = case get_guard(Type, Mps2) of
+                  {VFun, Mps2} = fetch_vfun(Type, Info, Mps1),
+                  QF = case get_guard(Type, Info, Mps2) of
                            none ->
                                ?q(fun(V) ->
                                           ?s(VFun(?r(V)))
@@ -332,9 +390,9 @@ encode_underlying({_, Args} = Type, Info, Mps) ->
     Type1 =  meta:reify_type(Type, Info),
     {_, Type2, []} = ground_type(Type1, Args),
     TR = type_ref(Type2),
-    {VFun, Mps1} = fetch(TR, Info, Mps),
+    {VFun, Mps1} = fetch_vfun(TR, Info, Mps),
     FunVFun = fun(_) -> VFun end,
-    GFun = get_guard(TR, Mps1),
+    GFun = get_guard(TR, Info, Mps1),
     add_fun_def(Type, none, Mps1, FunVFun, GFun).
 
 encode_basic_pred(Type, FunName, QGuardFun, Mps) ->
@@ -423,14 +481,6 @@ type_ref({atom, _Ln, Atom}) ->
 type_ref(Converted) ->
     Converted.
 
--spec norm_type(type()) -> norm_type().
-norm_type({{record, Name}, _Def, []}) ->
-    {record,[{atom,Name}]};
-norm_type({Name, _Def, Args}) ->
-    {Name, Args};
-norm_type({_Name, _Args} = Type) ->
-    Type.
-
 ground_type({Name, Def, Params}, Args) ->
     PAs = lists:zip(Params, Args),
     Ls = lists:map(
@@ -460,21 +510,22 @@ add_fun_def(Type, Def, Mps, id, GFun) ->
               end,
     add_fun_def(Type, Def, Mps, FunVFun, GFun);
 add_fun_def(Type, Def, #mps{defs = Defs} = Mps, FunVFun, GFun) ->
-    Ind = length(Defs),
+    Ind = dict:size(Defs),
     FN = list_to_atom("Fun" ++ integer_to_list(Ind)),
     FunName = ?v(?re(erl_syntax:revert(erl_syntax:variable(FN)))),
     VFun = FunVFun(FunName),
     FDef = #def_funs
-        {fun_name = FunName,
+        {ind = Ind,
+         fun_name = FunName,
          v_fun = VFun,
          def = Def,
          g_fun = GFun},
-    Defs1 = [{Type,FDef}|Defs],
-    {VFun, Mps#mps{defs = Defs1}}.
+    Defs1 = dict:store(Type, FDef, Defs),
+    {FDef, Mps#mps{defs = Defs1}}.
 
 
-get_guard(Type, #mps{defs = Defs}) ->
-    #def_funs{g_fun = GFun} = proplists:get_value(Type, Defs),
+get_guard(Type, Info, Mps) ->
+    {#def_funs{g_fun = GFun}, _} = fetch(Type, Info, Mps),
     GFun.
 
 
@@ -512,14 +563,70 @@ is_undefinable(_Type) ->
     false.
 
 
+handle_encoder({Type, FunRef}) ->
+    Type1 = option_type_norm(Type),
+    FunRef1 = option_fun_norm(FunRef), 
+    {Type1, FunRef1};
+handle_encoder(Inv) ->
+    meta:error(?MODULE, {invalid_encoder_option, Inv}).
+
+handle_surrogate({Type, Surrogate}) ->
+    {option_type_norm(Type), option_type_norm(Surrogate)};
+handle_surrogate(Inv) ->
+    meta:error(?MODULE, {invalid_surrogate_option, Inv}).
+
+option_type_norm({record, Name}) when is_atom(Name) ->
+    {record,[{atom,Name}]};
+option_type_norm({Type, Args})
+  when is_atom(Type) andalso is_list(Args) ->
+    Args1 = [option_type_norm(A) || A <- Args],
+    {Type, Args1};
+option_type_norm(Inv) ->
+    meta:error(?MODULE, {invalid_type_reference, Inv}).
+
+option_fun_norm({Mod, FunName} = FunRef)
+  when is_atom(Mod) andalso is_atom(FunName) ->
+    FunRef;
+option_fun_norm(FunName) when is_atom(FunName) ->
+    FunName;
+option_fun_norm(Inv) ->
+    meta:error(?MODULE, {invalid_fun_reference, Inv}).
+
+
+
+
 %%
 %% Formats error messages for compiler 
 %%
 -spec format_error(any()) -> iolist().
 format_error({unexpected_type, Type}) ->
-    format("Don't know how to encode type ~p", [Type]);
+    format("Don't know how to encode type ~p",
+           [type_to_list(Type)]);
 format_error({loop, Type}) ->
-    format("Cannot handle recursive type definition for type ~p", [Type]).
+    format("Cannot handle recursive type definition for type ~p",
+           [type_to_list(Type)]);
+format_error({invalid_encoder_option, Inv}) ->
+    format("Invalid 'encoder' option: ~p", [Inv]);
+format_error({invalid_surrogate_option, Inv}) ->
+    format("Invalid 'surrogate_type' option: ~p", [Inv]);
+format_error({invalid_type_reference, Inv}) ->
+    format("Invalid type reference in option list: ~p", [Inv]);
+format_error({invalid_fun_reference, Inv}) ->
+    format("Invalid function reference in option list: ~p", [Inv]);
+format_error({tuple_unsupported, Type}) ->
+    format("Don't know how to encode tuple type ~p",
+           [type_to_list(Type)]).
+
+
+type_to_list({union, Types}) ->
+    string:join([type_to_list(T) || T <- Types], " | ");
+type_to_list({record, [{atom, Name}]}) ->
+    lists:flatten(format("#~s{}", [Name]));
+type_to_list({atom, Atom}) ->
+    atom_to_list(Atom);
+type_to_list({Name, Args}) ->
+    Args1 = string:join([type_to_list(T) || T <- Args], ","),
+    lists:flatten(format("~s(~s)", [Name, Args1])).
 
 format(Format, Args) ->
     io_lib:format(Format, Args).

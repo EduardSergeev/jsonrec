@@ -9,8 +9,8 @@
 -export([format_error/1]).
 
 
--define(TYPE_METHODS_OPT, type_methods).
--define(TYPE_SURROGATES_OPT, type_surrogates).
+-define(PARSERS_OPT, parsers).
+-define(SURROGATES_OPT, surrogate_types).
 -define(NAME_HANDLER_OPT, name_handler).
 -define(DECODE_ATTR, decode).
 
@@ -41,38 +41,93 @@
 -define(LIST_QUOTE(Elem),
         {cons, _Ln1, Elem, {nil, _Ln2}}).
 
--type decode_option() :: any().
--type decode_options() :: [decode_option()].
-
 
 -record(mps,
-        {defs = [],
-         subs = [],
-         attrs = [],
+        {defs = dict:new(),
+         subs :: dict(),
          name_conv :: fun((atom()) -> string()),
          types = gb_sets:new()}).
 
 -record(def_funs,
         {parser :: parsers:q_parser(any())}).
 
+-type name_conv() :: fun((atom()) -> string()).
+
+-type decode_options() :: [decode_option()].
+-type decode_option() :: parsers() | name_handler().
+
+-type parsers() :: {parsers, [parser_type_ref() | parser_fun_ref()]}.
+%% This option is used to specify custom parser for a type.
+
+-type parser_type_ref() :: {record, Name :: atom()} |
+                           {TypeName :: atom(), Args :: [parser_type_ref()]}.
+
+-type parser_fun_ref() :: local_fun_ref() | remote_fun_ref().
+%% A reference to parser {@type parsers:parser()} function
+
+-type local_fun_ref() :: FunName :: atom().
+-type remote_fun_ref() :: {Mod :: atom(), FunName :: atom()}.
+
+-type name_handler() :: {name_handler, name_conv()}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Generates JSON "decode" function body for JSON de-serialization
+%% using type annotation.
+%%
+%% Note: This is `meta' function and normally it should not be used directly.
+%% Use `?decode_gen/2' and `?decode_gen/3' macros instead.
+%% <ul>
+%% <li>`Arg' is {@type meta:quote()} reference to generated function input parameter</li>
+%% <li>`Type' is {@type meta:quote()} of the type being JSON decoded</li>
+%% <li>`Info' is {@type meta:info()} structure returned by {@link meta:reify/0}</li>
+%% <li>`Options' is {@type meta:quote()} of a list of options {@type decode_options()}</li>
+%% </ul>
+%%
+%% Typical usage:
+%% ```decode(Bin) ->
+%%      ?decode_gen(#my_record{}, Bin).'''
+%% Upon compilation this code will generate parsing code which populates `#my_record{}'
+%% record if parsing succeeds.
+%% @end
+%%--------------------------------------------------------------------
 -spec decode_gen(Arg, Type, Info, Options) -> meta:quote(FunBody) when
-      Arg :: meta:quote(#var{}),
-      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Arg :: meta:quote(Var :: any()),
+      Type :: meta:quote(Type :: any()),
       Info :: meta:quote(meta:info()),
       Options :: meta:quote(decode_options()),
       FunBody :: any().
-decode_gen(QBin, Type, Info, Options) ->
+decode_gen(Arg, Type, Info, Options) ->
     Parser = code_gen(fun fetch/3, Type, Info, Options),
-    ?q(case ?s(to_parser(Parser, QBin)) of
+    ?q(case ?s(to_parser(Parser, Arg)) of
            {ok, {Val, _}} ->
                {ok, Val};
            {error, _} = E ->
                E
        end).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Generates JSON parser using type annotation.
+%%
+%% Similar to {@link decode_gen/3} but produces the code which is
+%% {@type parsers:parser()}
+%% so it can be used in place where parser is expected
+%% (like in {@type parser_fun_ref()} option)
+%%
+%% This is `meta' function and normally it should not be used directly.
+%% Use `?decode_gen_parser/2' and `?decode_gen_parser/3' macros instead.
+%% <ul>
+%% <li>`Arg' is {@type meta:quote()} reference to generated function input parameter</li>
+%% <li>`Type' is {@type meta:quote()} of the type being JSON decoded</li>
+%% <li>`Info' is {@type meta:info()} structure returned by {@link meta:reify/0}</li>
+%% <li>`Options' is {@type meta:quote()} of a list of options {@type decode_options()}</li>
+%% </ul>
+%% @end
+%%--------------------------------------------------------------------
 -spec decode_gen_parser(Arg, Type, Info, Options) -> meta:quote(FunBody) when
-      Arg :: meta:quote(#var{}),
-      Type :: meta:quote(?TYPE(atom(), [any()])),
+      Arg :: meta:quote(Var :: any()),
+      Type :: meta:quote(Type :: any()),
       Info :: meta:quote(meta:info()),
       Options :: meta:quote(decode_options()),
       FunBody :: any().
@@ -83,15 +138,18 @@ decode_gen_parser(QBin, Type, Info, Options) ->
 
 code_gen(CodeFun, Type, Info, Options) ->
     Type1 = norm_type_quote(?e(Type)),
-    Subs = proplists:get_value(?TYPE_METHODS_OPT, ?e(Options), []),
-    Subs1 = [norm_type(T) || T <- Subs],                      
+    Attrs = meta:reify_attributes(?DECODE_ATTR, ?e(Info)),
+    AEs = lists:flatten(proplists:get_all_values(?PARSERS_OPT, Attrs)),
+    ASs = lists:flatten(proplists:get_all_values(?SURROGATES_OPT, Attrs)),
+    OEs = proplists:get_value(?PARSERS_OPT, ?e(Options), []),
+    OSs = proplists:get_value(?SURROGATES_OPT, ?e(Options), []),
+    Subs = [handle_parser(E) || E <- AEs ++ OEs]
+        ++ [handle_surrogate(S) || S <- ASs ++ OSs],
+    DSubs = dict:from_list(Subs),
     NameFun = proplists:get_value(?NAME_HANDLER_OPT, ?e(Options),
                                   fun erlang:atom_to_list/1),
-    Attrs = meta:reify_attributes(?DECODE_ATTR, ?e(Info)),
     Mps = #mps{
-      defs = [],
-      subs = Subs1,
-      attrs = Attrs,
+      subs = DSubs,
       name_conv = NameFun},
     {Parser, _} = CodeFun(type_ref(Type1), ?e(Info), Mps),
     right(lift(?q(json_parsers:ws_p)), Parser).
@@ -167,6 +225,9 @@ gen_decode({any, []} = Type, _Info, Mps) ->
     P = ?q(json_parsers:any_json_p),
     code_basic(Type, P, Mps);
 
+gen_decode({tuple, _Args} = Type, _Info, _Mps) ->
+    meta:error(?MODULE, tuple_unsupported, Type);
+
 gen_decode({_UserType,_Args} = Type, Info, Mps) ->
     code_underlying(Type, Info, Mps);
     
@@ -218,33 +279,24 @@ decode_record(Index, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
 %% General decode/encode functions
 %%
 fetch(Type, Info, Mps) ->
-    case proplists:lookup(Type, Mps#mps.subs) of
-        none ->
-            Attrs = Mps#mps.attrs,
-            case proplists:lookup(Type, Attrs) of
-                none ->
-                    case proplists:lookup(Type, Mps#mps.defs) of
-                        {Type, #def_funs{parser = Parser}} ->
-                            {Parser, Mps};
-                        none ->
-                            Ts = Mps#mps.types,
-                            case gb_sets:is_member(Type, Ts) of
-                                false ->
-                                    Ts1 = gb_sets:add(Type, Ts),
-                                    gen_decode(Type, Info, Mps#mps{types = Ts1});
-                                true ->
-                                    meta:error(?MODULE, loop, Type)
-                            end
-                    end;
-                {Type, {_,Args} = SType} when is_list(Args) ->
-                    fetch(SType, Info, Mps);
-                {Type, Fun} ->
-                    QFun = json_fun(Fun),
-                    add_fun_def(Type, lift(QFun), Mps)
+    case dict:find(Type, Mps#mps.subs) of
+        error ->
+            case dict:find(Type, Mps#mps.defs) of
+                {ok, #def_funs{parser = Parser}} ->
+                    {Parser, Mps};
+                error ->
+                    Ts = Mps#mps.types,
+                    case gb_sets:is_member(Type, Ts) of
+                        false ->
+                            Ts1 = gb_sets:add(Type, Ts),
+                            gen_decode(Type, Info, Mps#mps{types = Ts1});
+                        true ->
+                            meta:error(?MODULE, loop, Type)
+                    end
             end;
-        {Type, {_,Args} = SType} when is_list(Args) ->
+        {ok, {_,Args} = SType} when is_list(Args) ->
             fetch(SType, Info, Mps);
-        {Type, Fun} ->
+        {ok, Fun} ->
             QFun = json_fun(Fun),
             add_fun_def(Type, lift(QFun), Mps)
     end.
@@ -298,13 +350,6 @@ type_ref({atom, _Ln, Atom}) ->
 type_ref(Converted) ->
     Converted.
 
-norm_type({{record, Name}, _Def, []}) ->
-    {record,[{atom,Name}]};
-norm_type({Name, _Def, Args}) ->
-    {Name, Args};
-norm_type({_Name, _Args} = Type) ->
-    Type.
-
 ground_type({Name, Def, Params}, Args) ->
     PAs = lists:zip(Params, Args),
     Ls = lists:map(
@@ -324,7 +369,7 @@ ground_type({Name, Def, Params}, Args) ->
 
 add_fun_def(Type, Parser, #mps{defs = Defs} = Mps) ->
     FDef = #def_funs{parser = Parser},
-    Defs1 = [{Type,FDef}|Defs],
+    Defs1 = dict:store(Type, FDef, Defs),
     {Parser, Mps#mps{defs = Defs1}}.
 
 
@@ -336,14 +381,67 @@ json_fun(LocalFun) ->
     ?v(?re(erl_parse:abstract(LocalFun))).
 
 
+handle_parser({Type, FunRef}) ->
+    Type1 = option_type_norm(Type),
+    FunRef1 = option_fun_norm(FunRef), 
+    {Type1, FunRef1};
+handle_parser(Inv) ->
+    meta:error(?MODULE, {invalid_parser_option, Inv}).
+
+handle_surrogate({Type, Surrogate}) ->
+    {option_type_norm(Type), option_type_norm(Surrogate)};
+handle_surrogate(Inv) ->
+    meta:error(?MODULE, {invalid_surrogate_option, Inv}).
+
+option_type_norm({record, Name}) when is_atom(Name) ->
+    {record,[{atom,Name}]};
+option_type_norm({Type, Args})
+  when is_atom(Type) andalso is_list(Args) ->
+    Args1 = [option_type_norm(A) || A <- Args],
+    {Type, Args1};
+option_type_norm(Inv) ->
+    meta:error(?MODULE, {invalid_type_reference, Inv}).
+
+option_fun_norm({Mod, FunName} = FunRef)
+  when is_atom(Mod) andalso is_atom(FunName) ->
+    FunRef;
+option_fun_norm(FunName) when is_atom(FunName) ->
+    FunName;
+option_fun_norm(Inv) ->
+    meta:error(?MODULE, {invalid_fun_reference, Inv}).
+
+
 %%
 %% Formats error messages for compiler 
 %%
 -spec format_error(any()) -> iolist().
 format_error({unexpected_type_decode, Type}) ->
-    format("Don't know how to decode type ~p", [Type]);
+    format("Don't know how to decode type ~p",
+           [type_to_list(Type)]);
 format_error({loop, Type}) ->
-    format("Cannot handle recursive type definition for type ~p", [Type]).
+    format("Cannot handle recursive type definition for type ~p",
+           [type_to_list(Type)]);
+format_error({invalid_parser_option, Inv}) ->
+    format("Invalid 'parser' option: ~p", [Inv]);
+format_error({invalid_surrogate_option, Inv}) ->
+    format("Invalid 'surrogate_type' option: ~p", [Inv]);
+format_error({invalid_type_reference, Inv}) ->
+    format("Invalid type reference in option list: ~p", [Inv]);
+format_error({invalid_fun_reference, Inv}) ->
+    format("Invalid function reference in option list: ~p", [Inv]);
+format_error({tuple_unsupported, Type}) ->
+    format("Don't know how to decode tuple type ~p",
+           [type_to_list(Type)]).
+
+type_to_list({union, Types}) ->
+    string:join([type_to_list(T) || T <- Types], " | ");
+type_to_list({record, [{atom, Name}]}) ->
+    lists:flatten(format("#~s{}", [Name]));
+type_to_list({atom, Atom}) ->
+    atom_to_list(Atom);
+type_to_list({Name, Args}) ->
+    Args1 = string:join([type_to_list(T) || T <- Args], ","),
+    lists:flatten(format("~s(~s)", [Name, Args1])).
 
 format(Format, Args) ->
     io_lib:format(Format, Args).

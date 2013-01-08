@@ -43,7 +43,7 @@
 
 -type any_rec() :: #rec0{} | #rec1{}.
 
--decode({{any_rec,[]}, {any,[]}}).
+-decode({surrogate_types, [{{any_rec,[]}, {any,[]}}]}).
 
 -record(rec3,
         {id = 0 :: integer(),
@@ -65,19 +65,25 @@
         {id :: integer(),
          string :: string()}).
 
-
 -record(rec_rec,
         {id :: integer(),
          rec :: #rec_rec{}}).
 
--encode({{record,[{atom,rec_rec}]}, encoder}).
--decode({{record,[{atom,rec_rec}]}, rec_rec_parser}).
+-encode({encoders, [{{record,rec_rec}, encoder}]}).
+-decode({parsers, [{{record,rec_rec}, rec_rec_parser}]}).
+
 
 -record(rec7, 
         {f1 :: atom1,
          f2 = atom2 :: atom2,
          f3 :: undefined,
          f4 = undefined :: undefined}).
+
+
+-type rec8_tuple() :: {string(), integer()}.
+-record(rec8,
+        {f1 :: rec8_tuple(),
+         f2 :: my_integer()}).
 
 
 encode(Rec) when is_integer(Rec) ->
@@ -101,7 +107,15 @@ encode(#rec6{} = Rec) ->
 encode(#rec_rec{} = Rec) ->
     ?encode_gen(#rec_rec{}, Rec);
 encode(#rec7{} = Rec) ->
-     ?encode_gen(#rec7{}, Rec).
+    ?encode_gen(#rec7{}, Rec);
+encode(#rec8{} = Rec) ->
+    ?encode_gen(
+       #rec8{}, Rec,
+       [{encoders,
+         [{{rec8_tuple, []}, rec8_tuple_encoder}]},
+        {surrogate_types,
+         [{{my_integer, []}, {integer, []}}]}]).
+
 
 
 decode(integer, Bin) ->
@@ -131,7 +145,15 @@ decode(rec6, Bin) ->
 decode(rec_rec, Bin) ->
     ?decode_gen(#rec_rec{}, Bin);
 decode(rec7, Bin) ->
-    ?decode_gen(#rec7{}, Bin).
+    ?decode_gen(#rec7{}, Bin);
+decode(rec8, Bin) ->
+    ?decode_gen(
+       #rec8{}, Bin,
+       [{parsers,
+         [{{rec8_tuple, []}, rec8_tuple_parser}]},
+        {surrogate_types,
+         [{{my_integer, []}, {integer, []}}]}]).
+
 
 
 decode_test_() ->
@@ -426,14 +448,11 @@ rec5_decode_any_as_rec0(Inp) ->
         {ok, {#rec5{any = Rec0Bin} = Rec5, _}} ->
             case rec0_parser(Rec0Bin) of
                 {ok, {Rec0, _}} ->
-                     %% ?debugFmt("Ok: ~p~n", [Rec0]),
                     {ok, Rec5#rec5{any = Rec0}};
                 {error, _} = Err ->
-                     %% ?debugFmt("Err: ~p~n", [Err]),
                     Err
             end;
         {error, _} = Err ->
-            %% ?debugFmt("Err: ~p~n", [Err]),
             Err
     end.
     
@@ -443,6 +462,36 @@ custom_parser_error_test() ->
     ?assertMatch({error, _},
                  rec5_decode_any_as_rec0(Json)).
     
+%%
+%% Customised encoding/decoding tests
+%%
+rec8_tuple_encoder({String, Integer}) ->
+    [$\", list_to_binary(String ++ "/" ++ integer_to_list(Integer)), $\"].
+
+rec8_tuple_parser(Bin) ->
+    case json_parsers:string_p(Bin) of
+        {ok, {BStr, Bin1}} ->
+            List = binary_to_list(BStr),
+            case string:tokens(List, "/") of
+                [String, SInteger] ->
+                    {ok, {{String, list_to_integer(SInteger)}, Bin1}};
+                Inv ->
+                    {error, {invalid_rec8_tuple, Inv}}
+            end;
+        Error ->
+            Error
+    end.
+    
+customised_gen_test() ->
+    Rec = #rec8
+        {f1 = {"test", 42},
+         f2 = 43},
+    Bin = list_to_binary(encode(Rec)),
+    ?assertMatch(<<"{\"f1\":\"test/42\","
+                   "\"f2\":43}">>, Bin),
+    encode_decode(rec8, Rec).
+
+
 
 
 %%
