@@ -1,6 +1,6 @@
 {application, jsonrec,
- [{description, "Yet another JSON library"},
-  {vsn, "0.0.1"},
+ [{description, "JSON serialization for Erlang records with type annotations"},
+  {vsn, "0.0.2"},
   {modules, []},
   {registered, []},
   {applications, []}]}.

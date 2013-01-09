@@ -20,7 +20,7 @@ Quickstart examples
 ###### Note: the code below can be found in [example/readme.erl](https://github.com/EduardSergeev/jsonrec/blob/dev/example/readme.erl) file.
 To use jsonrec simply add the following header:
  
-    -include("../include/jsonrec.hrl").
+    -include_lib("jsonrec/include/jsonrec.hrl").
 
 Then, lets say we have the following set of records which we want to generate serialization code for:
 

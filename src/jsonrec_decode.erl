@@ -2,7 +2,10 @@
 %%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
 %%% @copyright (C) 2013, Eduard Sergeev
 %%% @doc
+%%% JSON "decode" code generator
 %%%
+%%% This module uses `parsers' monadic parser combinator library
+%%% and a set of JSON parsers from `json_parsers'
 %%% @end
 %%% Created : 28 Nov 2012 by <eduard.sergeev@gmail.com>
 %%%-------------------------------------------------------------------
@@ -59,7 +62,6 @@
 -record(def_funs,
         {parser :: parsers:q_parser(any())}).
 
--type name_conv() :: fun((atom()) -> string()).
 
 -type decode_options() :: [decode_option()].
 -type decode_option() :: parsers() | name_handler().
@@ -77,6 +79,11 @@
 -type remote_fun_ref() :: {Mod :: atom(), FunName :: atom()}.
 
 -type name_handler() :: {name_handler, name_conv()}.
+%% Forces decoder to preprocess all record field names
+%% using specified function {@type name_conv()}
+
+-type name_conv() :: fun((atom()) -> string()).
+
 
 %%--------------------------------------------------------------------
 %% @doc

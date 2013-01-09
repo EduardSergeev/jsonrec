@@ -2,7 +2,9 @@
 %%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
 %%% @copyright (C) 2012, Eduard Sergeev
 %%% @doc
+%%% JSON parsers
 %%%
+%%% This module is based on `parsers' parser combinator library
 %%% @end
 %%% Created : 29 Dec 2012 by <eduard.sergeev@gmail.com>
 %%%-------------------------------------------------------------------
