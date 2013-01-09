@@ -2,7 +2,7 @@
 %%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
 %%% @copyright (C) 2013, Eduard Sergeev
 %%% @doc
-%%%
+%%% JSON "encode" code generator
 %%% @end
 %%% Created : 28 Nov 2012 by <eduard.sergeev@gmail.com>
 %%%-------------------------------------------------------------------
@@ -73,8 +73,6 @@
                       {call, integer(), {atom, integer(), atom()}, [type_quote()]} |
                       {cons, integer(), type_quote(), {nil, integer()}}.
 
--type name_conv() :: fun((atom()) -> string()).
-
 -type form() :: erl_parse:abstract_form().
 -type type() :: {{record, atom()}, form(), []} |
                 {atom(), form(), [type()]} |
@@ -96,6 +94,10 @@
 -type remote_fun_ref() :: {Mod :: atom(), FunName :: atom()}.
 
 -type name_handler() :: {name_handler, name_conv()}.
+%% Forces decoder to preprocess all record field names
+%% using specified function {@type name_conv()}
+
+-type name_conv() :: fun((atom()) -> string()).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -639,10 +641,6 @@ type_to_list({Name, Args}) ->
 format(Format, Args) ->
     io_lib:format(Format, Args).
 
-
-%%
-%% Utils
-%%
 
 %%
 %% Depth-first map

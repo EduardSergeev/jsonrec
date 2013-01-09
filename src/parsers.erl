@@ -2,7 +2,9 @@
 %%% @author Eduard Sergeev <eduard.sergeev@gmail.com>
 %%% @copyright (C) 2013, Eduard Sergeev
 %%% @doc
+%%% Monadic parser combinator library
 %%%
+%%% This library uses meta-programming to generate parsing code 
 %%% @end
 %%% Created : 15 Nov 2012 by <eduard.sergeev@gmail.com>
 %%%-------------------------------------------------------------------
