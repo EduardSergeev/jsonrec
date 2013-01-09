@@ -1,5 +1,3 @@
--include("parsers.hrl").
-
 -import(json_parsers,
         [whitespace/0,
          null/0, nullable/1,
