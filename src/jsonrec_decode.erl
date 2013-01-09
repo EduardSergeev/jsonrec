@@ -12,6 +12,7 @@
 -module(jsonrec_decode).
 
 -include_lib("meta/include/meta_syntax.hrl").
+-include("parsers.hrl").
 -include("json_parsers.hrl").
 
 
