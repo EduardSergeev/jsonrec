@@ -1,5 +1,6 @@
 ﻿Jsonrec
 =======
+[![Build Status](https://travis-ci.org/EduardSergeev/jsonrec.png?branch=dev)](https://travis-ci.org/EduardSergeev/jsonrec)
 
 Overview
 --------
