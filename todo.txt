@@ -1,4 +1,6 @@
 
+- Encode/decode options are still awkward. They need to be re-worked into more logical, easier to use and expandable in future
+ 
 - Optimise `parser:mplus/2` combinator in a such a way that it would not produce unnecessary `case` clauses
   (when one of the parsers cannot fail or succeed, for example)
   this should reduce the amount of generated code and speed up parsing
