@@ -2,7 +2,7 @@
 
 -include("../include/jsonrec.hrl").
 
--compile(export_all).
+-export([encode/1, decode/1]).
 
 -type country() :: 'AU' | 'RU' | 'UK' | 'US'.
 -record(address,
@@ -22,7 +22,7 @@
         {id :: integer(),
          first_name :: string(),
          last_name :: string(),
-         address = unknown :: #address{},
+         address = unknown :: #address{} | unknown,
          phones = [] :: [#phone{}]}).
 
 

@@ -1,5 +1,3 @@
--include_lib("meta/include/meta.hrl").
-
 -import(parsers,
         [return/1, bind/2, fail/1,
          mplus/2,

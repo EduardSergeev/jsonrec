@@ -10,6 +10,7 @@
 %%%-------------------------------------------------------------------
 -module(json_parsers).
 
+-include_lib("meta/include/meta.hrl").
 -include("parsers.hrl").
 
 -export([whitespace/0,

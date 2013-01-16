@@ -8,8 +8,9 @@
 %%%-------------------------------------------------------------------
 -module(parsers_tests).
 
--include("../src/parsers.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("meta/include/meta.hrl").
+-include("../src/parsers.hrl").
 
 -compile([{nowarn_unused_function, [thousands/0]}]).
 

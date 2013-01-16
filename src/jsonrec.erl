@@ -33,7 +33,11 @@
 atom_to_pascal(Atom) ->
     List = atom_to_list(Atom),
     Parts = string:tokens(List, "_"),
-    Capitalized = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Parts),
+    Capitalized = lists:map(
+                    fun([H|T]) ->
+                            string:to_upper([H]) ++
+                            string:to_lower(T)
+                    end, Parts),
     lists:concat(Capitalized).
 
 
@@ -58,7 +62,16 @@ atom_to_pascal(Atom) ->
 %%--------------------------------------------------------------------
 -spec atom_to_camel(atom()) -> string().
 atom_to_camel(Atom) ->
-    List = atom_to_list(Atom),
-    [P|Ps] = string:tokens(List, "_"),
-    Cs = lists:map(fun([H|T]) -> string:to_upper([H]) ++ T end, Ps),
-    lists:concat([P|Cs]).
+    [P|Ps] =
+        case atom_to_list(Atom) of
+            [$_|Rest] ->
+                [""|string:tokens(Rest, "_")];
+            List ->
+                string:tokens(List, "_")
+        end,
+    Cs = lists:map(
+           fun([H|T]) ->
+                   string:to_upper([H]) ++
+                   string:to_lower(T)
+           end, Ps),
+    lists:concat([string:to_lower(P)|Cs]).

@@ -14,7 +14,7 @@
 -type my_integer() :: integer().
 -type my_list(A) :: [A].
 
--compile(export_all).
+%% -compile(export_all).
 
 -record(rec0,
         {id :: integer(),
@@ -42,9 +42,6 @@
 
 
 -type any_rec() :: #rec0{} | #rec1{}.
-
--decode({surrogate_types, [{{any_rec,[]}, {any,[]}}]}).
-
 -record(rec3,
         {id = 0 :: integer(),
          type = rec0 :: rec0 | rec1,         %% we need this descriptor
@@ -69,8 +66,8 @@
         {id :: integer(),
          rec :: #rec_rec{}}).
 
--encode({encoders, [{{record,rec_rec}, encoder}]}).
--decode({parsers, [{{record,rec_rec}, rec_rec_parser}]}).
+-jsonrec([{encoder, {{record,rec_rec}, encoder}},
+          {parser, {{record,rec_rec}, rec_rec_parser}}]).
 
 
 -record(rec7, 
@@ -111,10 +108,10 @@ encode(#rec7{} = Rec) ->
 encode(#rec8{} = Rec) ->
     ?encode_gen(
        #rec8{}, Rec,
-       [{encoders,
-         [{{rec8_tuple, []}, rec8_tuple_encoder}]},
-        {surrogate_types,
-         [{{my_integer, []}, {integer, []}}]}]).
+       [{encoder,
+         {{rec8_tuple, []}, rec8_tuple_encoder}},
+        {surrogate_type,
+         {{my_integer, []}, {integer, []}}}]).
 
 
 
@@ -129,7 +126,10 @@ decode(rec1, Bin) ->
 decode(rec2, Bin) ->
     ?decode_gen(#rec2{}, Bin);
 decode(rec3, Bin) ->
-    {ok, #rec3{type = Type, rec = RecBin} = Rec} = ?decode_gen(#rec3{}, Bin),
+    {ok, #rec3{type = Type, rec = RecBin} = Rec} =
+        ?decode_gen(
+           #rec3{}, Bin,
+           [{surrogate_type, {{any_rec,[]}, {any,[]}}}]),
     case decode(Type, RecBin) of
         {ok, RecField} ->
             {ok, Rec#rec3{rec = RecField}};
@@ -149,10 +149,10 @@ decode(rec7, Bin) ->
 decode(rec8, Bin) ->
     ?decode_gen(
        #rec8{}, Bin,
-       [{parsers,
-         [{{rec8_tuple, []}, rec8_tuple_parser}]},
-        {surrogate_types,
-         [{{my_integer, []}, {integer, []}}]}]).
+       [{parser,
+         {{rec8_tuple, []}, rec8_tuple_parser}},
+        {surrogate_type,
+         {{my_integer, []}, {integer, []}}}]).
 
 
 
