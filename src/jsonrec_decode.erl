@@ -13,6 +13,7 @@
 
 -include_lib("meta/include/meta.hrl").
 -include_lib("meta/include/meta_syntax.hrl").
+-include("parsers.hrl").
 -include("json_parsers.hrl").
 -include("jsonrec_code.hrl").
 

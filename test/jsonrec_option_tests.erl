@@ -11,8 +11,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("meta/include/meta.hrl").
 
--include("../src/jsonrec.hrl").
+-include("../src/parsers.hrl").
 -include("../src/json_parsers.hrl").
+-include("../src/jsonrec.hrl").
 
 %% -meta_opts({dump_funs, [attribute_test_/0]}).
 

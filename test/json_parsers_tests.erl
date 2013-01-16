@@ -10,6 +10,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("meta/include/meta.hrl").
+-include("../src/parsers.hrl").
 -include("../src/json_parsers.hrl").
 
 

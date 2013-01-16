@@ -86,7 +86,7 @@ handle_conv(LocFun, Info)
     end;
 handle_conv({Mod, Fun}, _Info)
   when is_atom(Mod) andalso is_atom(Fun) ->
-    fun Mod:Fun/1;
+    fun(Arg) -> Mod:Fun(Arg) end;
 handle_conv(Fun, _Info) when is_function(Fun, 1) ->
     Fun;
 handle_conv(Inv, _Info) ->
