@@ -7,14 +7,17 @@ Overview
 Jsonrec is a yet another JSON encode/decode library written in Erlang. Even though one cannot say there is a lack of JSON libraries written in Erlang none of existing ones, to my knowledge, provides direct, seamless mapping between Erlang records and JSON (while jsonrec does).
 This library uses compile-time code generation to produce JSON encoding and decoding code based on record type annotations.
 
-How does it work
+How it works
 ----------------
 Given Erlang record definition with type annotation (fields can be of any JSON-compatible types including user-defined types, lists and nested records of arbitrary depth) jsonrec produces the body for "encode" and "decode" function (with a help of [meta](https://github.com/EduardSergeev/meta) library which in tern uses Erlang [parse_transform/2 function](http://www.erlang.org/doc/man/erl_id_trans.html) for source manipulation). The resulting functions can then be used as normal Erlang function.
 
 Benefits of jsonrec
 -------------------
 * Resulting functions consume and produce Erlang records which is much more convenient and safer (bug-free) to use then proplists or other weakly-typed structures (Erlang compiler and, optionally, Dialyzer can detects bugs and discrepancies at compile time)
-* Encoding/decoding functions are tailored in compile-time using type annotations so the resulting code can be much more efficient (in comparison to generic JSON parser/generator). In fact tests show that jsonrec is in majority cases faster then any existing purely Erlang-based JSON library (C-based parser, like `ejson`, is still understandably faster).
+* Encoding/decoding functions are tailored in compile-time using type annotations so the resulting code can be much more efficient (in comparison to generic JSON parser/generator).
+In fact [initial tests](https://github.com/EduardSergeev/erlbench/tree/latest) show that jsonrec is in majority cases faster then any existing purely Erlang-based JSON library,
+for both [encoding](https://raw.github.com/EduardSergeev/erlbench/latest/results/JSON/encode.png) and [decoding](https://raw.github.com/EduardSergeev/erlbench/latest/results/JSON/decode.png).
+C-based parsers, like `ejson`, are still understandably faster but this may change once critical parsers code is rewriten using NIF.
 
 Quickstart examples
 -------------------
@@ -119,3 +122,7 @@ Supported types
 Detailed library description
 ----------------------------
 `TODO`
+
+Current state of the library
+----------------------------
+As of today the library is in "experimental" stage: it was not thoroughly tested and is still in active development.
