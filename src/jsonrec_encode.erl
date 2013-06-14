@@ -394,7 +394,10 @@ encode_list(InnerType, Info, Mps) ->
                                      end,
                                      [<<$]>>], lists:reverse(Es)))]
              end),
-    add_fun_def({list, [InnerType]}, Def, Mps1).
+    GFun = fun(Item) ->
+                   ?q(is_list(?s(Item)))
+           end,
+    add_fun_def({list, [InnerType]}, Def, Mps1, id, GFun).
 
 encode_union(Types, Info, Mps) ->
     {Cs, MpsN} =

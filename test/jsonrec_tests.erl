@@ -82,6 +82,10 @@
         {f1 :: rec8_tuple(),
          f2 :: my_integer()}).
 
+-record(rec9,
+        {list_or_rec :: [#rec6{}] | #rec6{},
+         rec_or_list :: #rec6{} | [#rec6{}]}).
+
 
 encode(Rec) when is_integer(Rec) ->
     ?encode_gen(my_integer(), Rec);
@@ -111,8 +115,9 @@ encode(#rec8{} = Rec) ->
        [{encoder,
          {{rec8_tuple, []}, rec8_tuple_encoder}},
         {surrogate_type,
-         {{my_integer, []}, {integer, []}}}]).
-
+         {{my_integer, []}, {integer, []}}}]);
+encode(#rec9{} = Rec) ->
+    ?encode_gen(#rec9{}, Rec).
 
 
 decode(integer, Bin) ->
@@ -152,8 +157,9 @@ decode(rec8, Bin) ->
        [{parser,
          {{rec8_tuple, []}, rec8_tuple_parser}},
         {surrogate_type,
-         {{my_integer, []}, {integer, []}}}]).
-
+         {{my_integer, []}, {integer, []}}}]);
+decode(rec9, Bin) ->
+    ?decode_gen(#rec9{}, Bin).
 
 
 decode_test_() ->
@@ -311,6 +317,14 @@ record_list_test() ->
     Json = list_to_binary(IoList),
     {ok, Rs1} = D(Json),
     ?assertEqual(Rs, Rs1).
+
+union_list_test() ->
+    R6 = #rec6{id = 1, string = "Some string\n\r"},
+    Rec1 = #rec9{rec_or_list = R6, list_or_rec = R6},
+    encode_decode(rec9, Rec1),
+    Rec2 = #rec9{rec_or_list = [R6,R6], list_or_rec = [R6,R6,R6]},
+    encode_decode(rec9, Rec2).
+    
 
 %%
 %% Recursive definitions tests
