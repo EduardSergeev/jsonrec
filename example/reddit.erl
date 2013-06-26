@@ -6,7 +6,7 @@
          fetch/0, fetch/1,
          fetch_many/1, fetch_bare/1]).
 
--compile(export_all).
+-compile(nowarn_unused_record).
 
 
 -record(content,
