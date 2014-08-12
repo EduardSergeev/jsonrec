@@ -272,40 +272,41 @@ gen_encode(Type, _Info, _Mps) ->
 
 encode_fields(RecName, Fields, Info, Mps) ->
     NFs = lists:zip(lists:seq(2, length(Fields)+1), Fields),
-    {Es,Mps1} = lists:mapfoldl(
-                fun({I,T}, M) ->
-                        encode_field(RecName, I, T, Info, M)
-                end, Mps, NFs),
+    {Es,{Mps1,HasDef}} = lists:mapfoldl(
+                fun({I,T}, {M,H}) ->
+                        encode_field(RecName, I, T, Info, H, M)
+                end, {Mps,false}, NFs),
     Es1 = lists:reverse(Es),
     {?q(fun(_Rec) ->
-                [${, ?s(loop(?r(_Rec), ?q([]), Es1)), $}]
+                [${, ?s(loop(?r(_Rec), ?q([]), Es1, HasDef)), $}]
         end),
      Mps1}.
 
-loop(QRec, QAcc, [F]) ->
+loop(QRec, QAcc, [F], true) ->
+    ?q(tl(?s(F(QRec, QAcc))));
+loop(QRec, QAcc, [F], false) ->
     ?q(case ?s(F(QRec, QAcc)) of
-           [] ->
-               [];
+           [] -> [];
            [_|Es] -> Es
        end);
-loop(QRec, QAcc, [F|Fs]) ->
+loop(QRec, QAcc, [F|Fs], HasDef) ->
     ?q(begin
            Acc = ?s(F(QRec, QAcc)),
-           ?s(loop(QRec, ?r(Acc), Fs))
+           ?s(loop(QRec, ?r(Acc), Fs, HasDef))
        end).
 
     
 
-encode_field(RecName, Ind, ?FIELD(Fn), Info, Mps) ->
-    encode_record(RecName, Ind, Fn, {any, []}, Info, Mps);
-encode_field(RecName, Ind, ?FIELD(Fn, _Def), Info, Mps) ->
-    encode_record(RecName, Ind, Fn, {any, []}, Info, Mps);
-encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
-    encode_record(RecName, Ind, Fn, type_ref(Type), Info, Mps);
-encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
-    encode_record(RecName, Ind, Fn, type_ref(Type), Info, Mps).
+encode_field(RecName, Ind, ?FIELD(Fn), Info, HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, {any, []}, Info, HasDef, Mps);
+encode_field(RecName, Ind, ?FIELD(Fn, _Def), Info, _HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, {any, []}, Info, true, Mps);
+encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type), Info, HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, type_ref(Type), Info, HasDef, Mps);
+encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, _HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, type_ref(Type), Info, true, Mps).
 
-encode_record(RecName, Ind, FieldName, Type, Info, Mps) ->
+encode_record(RecName, Ind, FieldName, Type, Info, HasDef, Mps) ->
     NC = jsonrec_code:fetch_nameconv(RecName, FieldName, Mps),
     {VFun, Mps1} = fetch_vfun(RecName, FieldName, Type, Info, Mps),
 
@@ -331,7 +332,7 @@ encode_record(RecName, Ind, FieldName, Type, Info, Mps) ->
                              QAcc
                      end
              end,
-    {DefFun, Mps1}.
+    {DefFun, {Mps1, HasDef}}.
 
 
 %%
