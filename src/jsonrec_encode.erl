@@ -8,9 +8,10 @@
 %%%-------------------------------------------------------------------
 -module(jsonrec_encode).
 
+-include_lib("meta/include/meta.hrl").
 -include_lib("meta/include/meta_syntax.hrl").
 -include("parsers.hrl").
-
+-include("jsonrec_code.hrl").
 
 -export([encode_gen/4, encode_gen_encoder/4]).
 
@@ -21,10 +22,10 @@
 -export([format_error/1]).
 
 
--define(ENCODERS_OPT, encoders).
--define(SURROGATES_OPT, surrogate_types).
+-define(ENCODER_OPT, encoder).
+-define(SURROGATE_OPT, surrogate_type).
 -define(NAME_HANDLER_OPT, name_handler).
--define(ENCODE_ATTR, encode).
+-define(JSONREC_ATTR, jsonrec).
 
 -define(re(Syntax), erl_syntax:revert(Syntax)).
 
@@ -55,12 +56,6 @@
 -define(LIST_QUOTE(Elem),
         {cons, _Ln1, Elem, {nil, _Ln2}}).
 
--record(mps,
-        {defs = dict:new(),
-         subs :: dict(),
-         name_conv :: name_conv(),
-         types = gb_sets:new()}).
-
 -record(def_funs,
         {ind :: integer(),
          fun_name :: meta:quote(any()),
@@ -82,22 +77,19 @@
 
 
 -type encode_options() :: [encode_option()].
--type encode_option() :: encoders() | name_handler().
+-type encode_option() :: name_handler() | encoder() | surrogate().
 
--type encoders() :: {encoders, [encoder_type_ref() | encoder_fun_ref()]}.
-%% This option is used to specify custom encoding for a type.
+-type name_handler() :: {?NAME_HANDLER_OPT, name_handler_def()}.
+%% Forces encoder_gen to preprocess record field names using specified function
+-type name_handler_def() :: jsonrec_code:name_handler_def() | [name_handler_def()].
 
--type encoder_type_ref() :: {record, Name :: atom()} |
-                            {TypeName :: atom(), Args :: [encoder_type_ref()]}.
--type encoder_fun_ref() :: local_fun_ref() | remote_fun_ref().
--type local_fun_ref() :: FunName :: atom().
--type remote_fun_ref() :: {Mod :: atom(), FunName :: atom()}.
+-type encoder() :: {?ENCODER_OPT, encoder_def()}.
+%% This option is used to specify custom encoding for a type or field.
+-type encoder_def() :: jsonrec_code:coder_handler_def() | [encoder_def()].
 
--type name_handler() :: {name_handler, name_conv()}.
-%% Forces decoder to preprocess all record field names
-%% using specified function {@type name_conv()}
-
--type name_conv() :: fun((atom()) -> string()).
+-type surrogate() :: {?SURROGATE_OPT, surrogate_def()}.
+%% This options is used to treat a type or a field as if it was of another type
+-type surrogate_def() :: jsonrec_code:surrogate_def() | [surrogate_def()].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,23 +154,32 @@ encode_gen_encoder(QArg, Type, Info, Options) ->
               end,
     code_gen(CodeFun, QArg, Type, Info, Options).
 
-code_gen(CodeFun, QArg, Type, Info, Options) ->
+code_gen(CodeFun, QArg, Type, QInfo, QOptions) ->
+    Info = ?e(QInfo),
+    Options = ?e(QOptions),
     Type1 = norm_type_quote(?e(Type)),
-    Attrs = meta:reify_attributes(?ENCODE_ATTR, ?e(Info)),
-    AEs = lists:flatten(proplists:get_all_values(?ENCODERS_OPT, Attrs)),
-    ASs = lists:flatten(proplists:get_all_values(?SURROGATES_OPT, Attrs)),
-    OEs = proplists:get_value(?ENCODERS_OPT, ?e(Options), []),
-    OSs = proplists:get_value(?SURROGATES_OPT, ?e(Options), []),
-    Subs = [handle_encoder(E) || E <- AEs ++ OEs]
-        ++ [handle_surrogate(S) || S <- ASs ++ OSs],
-    DSubs = dict:from_list(Subs),
-    NameFun = proplists:get_value(
-                ?NAME_HANDLER_OPT, ?e(Options),
-                fun atom_to_list/1),
+    Attrs = lists:flatten(meta:reify_attributes(?JSONREC_ATTR, Info)),
+    AEs = flatget_all_values(?ENCODER_OPT, Attrs),
+    ASs = flatget_all_values(?SURROGATE_OPT, Attrs),
+    OEs = flatget_all_values(?ENCODER_OPT, Options),
+    OSs = flatget_all_values(?SURROGATE_OPT, Options),
+    Subs = [jsonrec_code:handle_surrogate(S) || S <- ASs ++ OSs]
+        ++ [jsonrec_code:handle_coder(E) || E <- AEs ++ OEs],
+    DSubs = dict:from_list(lists:flatten(Subs)),
+
+    ANCs = flatget_all_values(?NAME_HANDLER_OPT, Attrs),
+    ONCs = flatget_all_values(?NAME_HANDLER_OPT, Options),
+    NConvs = [{default, fun atom_to_list/1}]
+        ++ lists:flatmap(
+             fun(NC) ->
+                     jsonrec_code:handle_nameconv(NC, Info)
+             end, ANCs ++ ONCs),
+    DNConvs = dict:from_list(NConvs),
+
     Mps = #mps{
       subs = DSubs,
-      name_conv = NameFun},
-    {VFun, Mps1} = CodeFun(type_ref(Type1), ?e(Info), Mps),
+      n_convs = DNConvs},
+    {VFun, Mps1} = CodeFun(type_ref(Type1), Info, Mps),
     Defs = [D || {_, D} <- dict:to_list(Mps1#mps.defs)],
     SDefs = lists:sort(
               fun(L,R) ->
@@ -200,7 +201,7 @@ code_gen(CodeFun, QArg, Type, Info, Options) ->
       DefFuns :: #def_funs{}.
 gen_encode({record, [{atom, RecName}]} = Type, Info, Mps) ->
     {_, Fields, []} = meta:reify_type({record, RecName}, Info),
-    {Def, Mps1} = encode_fields(Fields, Info, Mps),
+    {Def, Mps1} = encode_fields(RecName, Fields, Info, Mps),
     QTag = ?v(?re(erl_parse:abstract(RecName))),
     GFun = fun(Item) ->
                    ?q(is_record(?s(Item), ?s(QTag)))
@@ -269,44 +270,47 @@ gen_encode({_UserType, _Args} = Type, Info, Mps) ->
 gen_encode(Type, _Info, _Mps) ->
     meta:error(?MODULE, unexpected_type, Type).
 
-encode_fields(Fields, Info, Mps) ->
+encode_fields(RecName, Fields, Info, Mps) ->
     NFs = lists:zip(lists:seq(2, length(Fields)+1), Fields),
-    {Es,Mps1} = lists:mapfoldl(
-                fun({I,T}, M) ->
-                        encode_field(I, T, Info, M)
-                end, Mps, NFs),
+    {Es,{Mps1,HasDef}} = lists:mapfoldl(
+                fun({I,T}, {M,H}) ->
+                        encode_field(RecName, I, T, Info, H, M)
+                end, {Mps,false}, NFs),
     Es1 = lists:reverse(Es),
     {?q(fun(_Rec) ->
-                [<<"{">>, ?s(loop(?r(_Rec), ?q([]), Es1)), <<"}">>]
+                [${, ?s(loop(?r(_Rec), ?q([]), Es1, HasDef)), $}]
         end),
      Mps1}.
 
-loop(QRec, QAcc, [F]) ->
+loop(QRec, QAcc, [F], true) ->
+    ?q(tl(?s(F(QRec, QAcc))));
+loop(QRec, QAcc, [F], false) ->
     ?q(case ?s(F(QRec, QAcc)) of
-           [] ->
-               [];
+           [] -> [];
            [_|Es] -> Es
        end);
-loop(QRec, QAcc, [F|Fs]) ->
+loop(QRec, QAcc, [F|Fs], HasDef) ->
     ?q(begin
            Acc = ?s(F(QRec, QAcc)),
-           ?s(loop(QRec, ?r(Acc), Fs))
+           ?s(loop(QRec, ?r(Acc), Fs, HasDef))
        end).
 
     
 
-encode_field(Ind, ?FIELD(Fn), Info, Mps) ->
-    encode_record(Ind, Fn, {any, []}, Info, Mps);
-encode_field(Ind, ?FIELD(Fn, _Def), Info, Mps) ->
-    encode_record(Ind, Fn, {any, []}, Info, Mps);
-encode_field(Ind, ?TYPED_FIELD(Fn, Type), Info, Mps) ->
-    encode_record(Ind, Fn, type_ref(Type), Info, Mps);
-encode_field(Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, Mps) ->
-    encode_record(Ind, Fn, type_ref(Type), Info, Mps).
+encode_field(RecName, Ind, ?FIELD(Fn), Info, HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, {any, []}, Info, HasDef, Mps);
+encode_field(RecName, Ind, ?FIELD(Fn, _Def), Info, _HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, {any, []}, Info, true, Mps);
+encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type), Info, HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, type_ref(Type), Info, HasDef, Mps);
+encode_field(RecName, Ind, ?TYPED_FIELD(Fn, Type, _Def), Info, _HasDef, Mps) ->
+    encode_record(RecName, Ind, Fn, type_ref(Type), Info, true, Mps).
 
-encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
-    {VFun, Mps1} = fetch_vfun(Type, Info, Mps),
-    AFN = ?v(?re(erl_parse:abstract("\"" ++ NC(Fn) ++ "\""))),
+encode_record(RecName, Ind, FieldName, Type, Info, HasDef, Mps) ->
+    NC = jsonrec_code:fetch_nameconv(RecName, FieldName, Mps),
+    {VFun, Mps1} = fetch_vfun(RecName, FieldName, Type, Info, Mps),
+
+    QFN = ?v(?re(erl_parse:abstract("\"" ++ NC(FieldName) ++ "\""))),
     QInd = ?v(?re(erl_parse:abstract(Ind))),
     DefFun = fun(QRec, QAcc) ->
                      case nullable_kind(Type) of
@@ -314,32 +318,40 @@ encode_record(Ind, Fn, Type, Info, #mps{name_conv = NC} = Mps) ->
                              ?q(begin
                                     V = ?s(VFun(?q(element(?s(QInd), ?s(QRec))))),
                                     if V =/= undefined ->
-                                            [<<$,>>, ?s(AFN), <<":">>, V
+                                            [$,, ?s(QFN), $:, V
                                              | ?s(QAcc)];
                                        true ->
                                             ?s(QAcc)
                                     end
                                 end);
                          non_nullable ->
-                             ?q([<<$,>>, ?s(AFN), <<":">>,
+                             ?q([$,, ?s(QFN), $:,
                                  ?s(VFun(?q(element(?s(QInd), ?s(QRec)))))
                                  | ?s(QAcc)]);
                          null ->
                              QAcc
                      end
              end,
-    {DefFun, Mps1}.
+    {DefFun, {Mps1, HasDef}}.
 
 
 %%
 %% General encode functions
 %%
+fetch_vfun(RecName, FieldName, Type, Info, Mps) ->
+    fetch_vfun({RecName,FieldName,Type}, Info, Mps).
+
 fetch_vfun(Type, Info, Mps) ->
     {#def_funs{v_fun = VFun}, Mps1} = fetch(Type, Info, Mps),
     {VFun, Mps1}.
-    
+
+fetch({RecName, FieldName, Type}, Info, Mps) ->
+    fetch(Type, {{record,RecName}, FieldName}, Info, Mps);
 fetch(Type, Info, Mps) ->
-    case dict:find(Type, Mps#mps.subs) of
+    fetch(Type, Type, Info, Mps).
+
+fetch(Type, SubKey, Info, Mps) ->
+    case fetch_sub(SubKey, Type, Mps) of
         error ->
             case dict:find(Type, Mps#mps.defs) of
                 {ok, DefFuns} ->
@@ -361,6 +373,17 @@ fetch(Type, Info, Mps) ->
             add_fun_def(Type, none, Mps, FunVFun)
     end.
 
+fetch_sub(Type, Type, Mps) ->
+    dict:find(Type, Mps#mps.subs);
+fetch_sub(SubKey, Type, Mps) ->
+    case dict:find(SubKey, Mps#mps.subs) of
+        error ->
+            fetch_sub(Type, Type, Mps);
+        Val ->
+            Val
+    end.
+
+
 encode_list(InnerType, Info, Mps) -> 
     {Fun, Mps1} = fetch_vfun(type_ref(InnerType), Info, Mps),
     Def = ?q(fun([]) ->
@@ -372,7 +395,10 @@ encode_list(InnerType, Info, Mps) ->
                                      end,
                                      [<<$]>>], lists:reverse(Es)))]
              end),
-    add_fun_def({list, [InnerType]}, Def, Mps1).
+    GFun = fun(Item) ->
+                   ?q(is_list(?s(Item)))
+           end,
+    add_fun_def({list, [InnerType]}, Def, Mps1, id, GFun).
 
 encode_union(Types, Info, Mps) ->
     {Cs, MpsN} =
@@ -469,6 +495,10 @@ escape_iter(<<_/utf8, Rest/binary>>, Bin, Len, Acc) ->
     escape_iter(Rest, Bin, Len+1, Acc);
 escape_iter(Inv, _, _, _) ->
     error({invalid_unicode, Inv}).
+
+%%
+%% Option parsing
+%%
 
 
 %%
@@ -573,38 +603,6 @@ is_undefinable(_Type) ->
     false.
 
 
-handle_encoder({Type, FunRef}) ->
-    Type1 = option_type_norm(Type),
-    FunRef1 = option_fun_norm(FunRef), 
-    {Type1, FunRef1};
-handle_encoder(Inv) ->
-    meta:error(?MODULE, {invalid_encoder_option, Inv}).
-
-handle_surrogate({Type, Surrogate}) ->
-    {option_type_norm(Type), option_type_norm(Surrogate)};
-handle_surrogate(Inv) ->
-    meta:error(?MODULE, {invalid_surrogate_option, Inv}).
-
-option_type_norm({record, Name}) when is_atom(Name) ->
-    {record,[{atom,Name}]};
-option_type_norm({Type, Args})
-  when is_atom(Type) andalso is_list(Args) ->
-    Args1 = [option_type_norm(A) || A <- Args],
-    {Type, Args1};
-option_type_norm(Inv) ->
-    meta:error(?MODULE, {invalid_type_reference, Inv}).
-
-option_fun_norm({Mod, FunName} = FunRef)
-  when is_atom(Mod) andalso is_atom(FunName) ->
-    FunRef;
-option_fun_norm(FunName) when is_atom(FunName) ->
-    FunName;
-option_fun_norm(Inv) ->
-    meta:error(?MODULE, {invalid_fun_reference, Inv}).
-
-
-
-
 %%
 %% Formats error messages for compiler 
 %%
@@ -615,14 +613,6 @@ format_error({unexpected_type, Type}) ->
 format_error({loop, Type}) ->
     format("Cannot handle recursive type definition for type ~p",
            [type_to_list(Type)]);
-format_error({invalid_encoder_option, Inv}) ->
-    format("Invalid 'encoder' option: ~p", [Inv]);
-format_error({invalid_surrogate_option, Inv}) ->
-    format("Invalid 'surrogate_type' option: ~p", [Inv]);
-format_error({invalid_type_reference, Inv}) ->
-    format("Invalid type reference in option list: ~p", [Inv]);
-format_error({invalid_fun_reference, Inv}) ->
-    format("Invalid function reference in option list: ~p", [Inv]);
 format_error({tuple_unsupported, Type}) ->
     format("Don't know how to encode tuple type ~p",
            [type_to_list(Type)]).
@@ -640,6 +630,12 @@ type_to_list({Name, Args}) ->
 
 format(Format, Args) ->
     io_lib:format(Format, Args).
+
+%%
+%% Utils
+%%
+flatget_all_values(Key, PropList) ->
+    lists:flatten(proplists:get_all_values(Key, PropList)).
 
 
 %%

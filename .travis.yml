@@ -1,5 +1,6 @@
 language: erlang
 otp_release:
-  - R16B
+  - 17.1
+  - R16B03
   - R15B02
   - R14B04

@@ -6,7 +6,7 @@
          fetch/0, fetch/1,
          fetch_many/1, fetch_bare/1]).
 
--compile(export_all).
+-compile(nowarn_unused_record).
 
 
 -record(content,
@@ -22,8 +22,6 @@
          ups :: integer(),
          downs :: integer()}).
 
-%%-type comment() :: #comment{}.
-
 
 -record(post, %% t3
         {id :: binary(),
@@ -35,20 +33,17 @@
          edited :: boolean() | float()}).
 
 
-%% -type contents() :: [#content{}].
-
 -record(listing,
        {before :: binary(),
         'after' :: binary(),
         children = [] :: [#content{}]}).
 
 
--decode({parsers,
-         [{{record, comment}, comment_parser},
-          {{record, content}, content_parser}]}).
-
-
--encode({encoders, [{{record,content}, content_encoder}]}).
+-jsonrec([{parser,
+           [{{record,comment}, comment_parser},
+            {{record,content}, content_parser}]},
+          {encoder,
+           {{record,content}, content_encoder}}]).
 
 
 decode(Bin) ->
@@ -68,14 +63,11 @@ content_parser(Bin) ->
          {ok, {#content{kind = Kind, data = DataBin} = Rec, Bin1}} ->
              case data_parser(Kind, DataBin) of
                  {ok, {Data, _}} ->
-                     %% io:format("Ok: ~p~n", [Data]),
                      {ok, {Rec#content{data = Data}, Bin1}};
                  {error, _} = Err ->
-                     %% io:format("Err: ~p~n", [Err]),
                      Err
              end;                 
          {error, _} = Err ->
-             %% io:format("Err: ~p~n", [Err]),
              Err
      end.
 
